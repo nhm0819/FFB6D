@@ -18,7 +18,9 @@ from common import Config, ConfigRandLA
 from models.ffb6d import FFB6D
 from datasets.ycb.ycb_dataset import Dataset as YCB_Dataset
 from datasets.linemod.linemod_dataset import Dataset as LM_Dataset
-from utils.pvn3d_eval_utils_kpls import cal_frame_poses, cal_frame_poses_lm
+from datasets.linemod.linemod_dataset_test import Dataset as LM_Dataset_test
+from datasets.neuromeka.neuromeka_dataset import Dataset as NM_Dataset
+from utils.pvn3d_eval_utils_kpls import cal_frame_poses, cal_frame_poses_lm, cal_frame_poses_nm
 from utils.basic_utils import Basic_Utils
 try:
     from neupeak.utils.webcv2 import imshow, waitKey
@@ -46,6 +48,8 @@ args = parser.parse_args()
 
 if args.dataset == "ycb":
     config = Config(ds_name=args.dataset)
+elif args.dataset == "neuromeka":
+    config = Config(ds_name=args.dataset, cls_type=args.cls)
 else:
     config = Config(ds_name=args.dataset, cls_type=args.cls)
 bs_utils = Basic_Utils(config)
@@ -97,6 +101,8 @@ def cal_view_pred_pose(model, data, epoch=0, obj_id=-1):
             elif data[key].dtype in [torch.int32, torch.int16]:
                 cu_dt[key] = data[key].long().cuda()
         end_points = model(cu_dt)
+
+
         _, classes_rgbd = torch.max(end_points['pred_rgbd_segs'], 1)
 
         pcld = cu_dt['cld_rgb_nrm'][:, :3, :].permute(0, 2, 1).contiguous()
@@ -106,6 +112,12 @@ def cal_view_pred_pose(model, data, epoch=0, obj_id=-1):
                 end_points['pred_kp_ofs'][0], True, config.n_objects, True,
                 None, None
             )
+        elif args.dataset == "neuromeka":
+            pred_pose_lst = cal_frame_poses_nm(
+                pcld[0], classes_rgbd[0], end_points['pred_ctr_ofs'][0],
+                end_points['pred_kp_ofs'][0], True, config.n_objects, False, obj_id
+            )
+            pred_cls_ids = np.array([[1]])
         else:
             pred_pose_lst = cal_frame_poses_lm(
                 pcld[0], classes_rgbd[0], end_points['pred_ctr_ofs'][0],
@@ -128,6 +140,8 @@ def cal_view_pred_pose(model, data, epoch=0, obj_id=-1):
             mesh_pts = np.dot(mesh_pts, pose[:, :3].T) + pose[:, 3]
             if args.dataset == "ycb":
                 K = config.intrinsic_matrix["ycb_K1"]
+            elif args.dataset == "neuromeka":
+                K = config.intrinsic_matrix["neuromeka"]
             else:
                 K = config.intrinsic_matrix["linemod"]
             mesh_p2ds = bs_utils.project_p3d(mesh_pts, 1.0, K)
@@ -155,12 +169,18 @@ def main():
     if args.dataset == "ycb":
         test_ds = YCB_Dataset('test')
         obj_id = -1
+    elif args.dataset == "neuromeka":
+        test_ds = NM_Dataset('test', cls_type=args.cls)
+        obj_id = config.neuromeka_obj_dict[args.cls]
+    elif args.dataset == "linemod_test":
+        test_ds = LM_Dataset_test('test', cls_type=args.cls)
+        obj_id = config.lm_obj_dict[args.cls]
     else:
         test_ds = LM_Dataset('test', cls_type=args.cls)
         obj_id = config.lm_obj_dict[args.cls]
     test_loader = torch.utils.data.DataLoader(
         test_ds, batch_size=config.test_mini_batch_size, shuffle=False,
-        num_workers=20
+        num_workers=0
     )
 
     rndla_cfg = ConfigRandLA

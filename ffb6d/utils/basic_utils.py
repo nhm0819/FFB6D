@@ -165,10 +165,19 @@ class Basic_Utils():
         self.config = config
         if config.dataset_name == "ycb":
             self.ycb_cls_lst = config.ycb_cls_lst
+        if config.dataset_name == "neuromeka":
+            self.neuromeka_cls_lst = config.neuromeka_cls_lst
+
         self.ycb_cls_ptsxyz_dict = {}
         self.ycb_cls_ptsxyz_cuda_dict = {}
         self.ycb_cls_kps_dict = {}
         self.ycb_cls_ctr_dict = {}
+
+        self.neuromeka_cls_ptsxyz_dict = {}
+        self.neuromeka_cls_ptsxyz_cuda_dict = {}
+        self.neuromeka_cls_kps_dict = {}
+        self.neuromeka_cls_ctr_dict = {}
+
         self.lm_cls_ptsxyz_dict = {}
         self.lm_cls_ptsxyz_cuda_dict = {}
         self.lm_cls_kps_dict = {}
@@ -508,6 +517,8 @@ class Basic_Utils():
         if type(cls) is int:
             if ds_type == 'ycb':
                 cls = self.ycb_cls_lst[cls - 1]
+            elif ds_type == 'neuromeka':
+                cls = self.neuromeka_cls_lst[cls - 1]
             else:
                 cls = self.lm_cls_lst[cls - 1]
         return cls
@@ -539,6 +550,8 @@ class Basic_Utils():
             pointxyz = np.loadtxt(ptxyz_ptn.format(cls), dtype=np.float32)
             self.ycb_cls_ptsxyz_dict[cls] = pointxyz
             return pointxyz
+        # elif ds_type == "neuromeka":
+
         else:
             ptxyz_pth = os.path.join(
                 'datasets/linemod/Linemod_preprocessed/models',
@@ -578,6 +591,8 @@ class Basic_Utils():
         if type(cls) is int:
             if ds_type == 'ycb':
                 cls = self.ycb_cls_lst[cls - 1]
+            elif ds_type == 'neuromeka':
+                cls = self.config.neuromeka_id2obj_dict[cls]
             else:
                 cls = self.config.lm_id2obj_dict[cls]
         try:
@@ -595,6 +610,20 @@ class Basic_Utils():
                 )
             kps = np.loadtxt(kps_pth, dtype=np.float32)
             self.ycb_cls_kps_dict[cls] = kps
+
+        elif ds_type == "neuromeka":
+            if cls in self.neuromeka_cls_kps_dict.keys():
+                return self.neuromeka_cls_kps_dict[cls].copy()
+
+            if use_orbfps:
+                kps_pth = self.config.kp_orbfps_ptn % (cls)
+            else:
+                kps_pth = os.path.join(
+                    self.config.neuromeka_fps_kps_dir, f'{cls}_fps.txt'
+                )
+            kps = np.loadtxt(kps_pth, dtype=np.float32)
+            self.neuromeka_cls_kps_dict[cls] = kps
+
         else:
             if cls in self.lm_cls_kps_dict.keys():
                 return self.lm_cls_kps_dict[cls].copy()
@@ -617,6 +646,8 @@ class Basic_Utils():
         if type(cls) is int:
             if ds_type == 'ycb':
                 cls = self.ycb_cls_lst[cls - 1]
+            elif ds_type == 'neuromeka':
+                cls = self.neuromeka_cls_lst[cls - 1]
             else:
                 cls = self.config.lm_id2obj_dict[cls]
         if ds_type == "ycb":
@@ -628,6 +659,17 @@ class Basic_Utils():
             cors = np.loadtxt(cor_pattern.format(cls), dtype=np.float32)
             ctr = cors.mean(0)
             self.ycb_cls_ctr_dict[cls] = ctr
+        elif ds_type == "neuromeka":
+            if cls in self.neuromeka_cls_ctr_dict.keys():
+                return self.neuromeka_cls_ctr_dict[cls].copy()
+            cls_id = self.neuromeka_cls_lst.index(cls) + 1
+            cor_pattern = os.path.join(
+                self.config.kp_orbfps_dir, f'{cls}_corners.txt',
+            )
+            cors = np.loadtxt(cor_pattern.format(cls), dtype=np.float32)
+            ctr = cors.mean(0)
+            self.neuromeka_cls_ctr_dict[cls] = ctr
+
         else:
             if cls in self.lm_cls_ctr_dict.keys():
                 return self.lm_cls_ctr_dict[cls].copy()

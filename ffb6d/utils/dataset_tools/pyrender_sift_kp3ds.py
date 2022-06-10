@@ -126,7 +126,7 @@ def extract_textured_kp3ds(args, mesh_pth, sv_kp=True):
         # pclds += list(data['dpt_pcld'])
 
     if sv_kp:
-        with open("%s_%s_textured_kp3ds.obj" % (args.obj_name, args.extractor), 'w') as of:
+        with open("%s/%s_%s_textured_kp3ds.obj" % (sv_kp, args.obj_name, args.extractor), 'w') as of:
             for p3d in kp3ds:
                 print('v ', p3d[0], p3d[1], p3d[2], file=of)
     return kp3ds

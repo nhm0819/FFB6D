@@ -21,6 +21,8 @@ try:
 except ImportError:
     from cv2 import imshow, waitKey
 
+import matplotlib.pyplot as plt
+
 
 class Dataset():
 
@@ -254,7 +256,8 @@ class Dataset():
         )
         if self.DEBUG:
             show_nrm_map = ((nrm_map + 1.0) * 127).astype(np.uint8)
-            imshow("nrm_map", show_nrm_map)
+            # imshow("nrm_map", show_nrm_map)
+            plt.imshow(show_nrm_map)
 
         dpt_m = dpt_mm.astype(np.float32) / cam_scale
         dpt_xyz = self.dpt_2_pcld(dpt_m, 1.0, K)

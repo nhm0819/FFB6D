@@ -23,6 +23,12 @@ try:
     bs_utils_lm = Basic_Utils(config_lm)
 except Exception as ex:
     print(ex)
+try:
+    config_nm = Config(ds_name="neuromeka")
+    bs_utils_nm = Basic_Utils(config_nm)
+except Exception as ex:
+    print(ex)
+
 
 
 def best_fit_transform(A, B):
@@ -214,6 +220,72 @@ def eval_one_frame_pose(
 
 # ###############################End YCB Evaluation###############################
 
+# ###############################Neuromeka Evaluation###############################
+def cal_frame_poses_nm(
+    pcld, mask, ctr_of, pred_kp_of, use_ctr, n_cls, use_ctr_clus_flter, obj_id,
+    debug=False
+):
+    """
+    Calculates pose parameters by 3D keypoints & center points voting to build
+    the 3D-3D corresponding then use least-squares fitting to get the pose parameters.
+    """
+    n_kps, n_pts, _ = pred_kp_of.size()
+    pred_ctr = pcld - ctr_of[0]
+    pred_kp = pcld.view(1, n_pts, 3).repeat(n_kps, 1, 1) - pred_kp_of
+
+    radius = 0.04
+    if use_ctr:
+        cls_kps = torch.zeros(n_cls, n_kps+1, 3).cuda()
+    else:
+        cls_kps = torch.zeros(n_cls, n_kps, 3).cuda()
+
+    pred_pose_lst = []
+    cls_id = 1
+    cls_msk = mask == cls_id
+    if cls_msk.sum() < 1:
+        pred_pose_lst.append(np.identity(4)[:3, :])
+    else:
+        cls_voted_kps = pred_kp[:, cls_msk, :]
+        ms = MeanShiftTorch(bandwidth=radius)
+        ctr, ctr_labels = ms.fit(pred_ctr[cls_msk, :])
+        if ctr_labels.sum() < 1:
+            ctr_labels[0] = 1
+        if use_ctr:
+            cls_kps[cls_id, n_kps, :] = ctr
+
+        if use_ctr_clus_flter:
+            in_pred_kp = cls_voted_kps[:, ctr_labels, :]
+        else:
+            in_pred_kp = cls_voted_kps
+
+        for ikp, kps3d in enumerate(in_pred_kp):
+            cls_kps[cls_id, ikp, :], _ = ms.fit(kps3d)
+
+        # visualize
+        if debug:
+            show_kp_img = np.zeros((480, 640, 3), np.uint8)
+            kp_2ds = bs_utils.project_p3d(
+                cls_kps[cls_id].cpu().numpy(), 1000.0, K='neuromeka'
+            )
+            # print("cls_id = ", cls_id)
+            # print("kp3d:", cls_kps[cls_id])
+            # print("kp2d:", kp_2ds, "\n")
+            color = (0, 0, 255)  # bs_utils.get_label_color(cls_id.item())
+            show_kp_img = bs_utils.draw_p2ds(show_kp_img, kp_2ds, r=3, color=color)
+            imshow("kp: cls_id=%d" % cls_id, show_kp_img)
+            waitKey(0)
+
+        mesh_kps = bs_utils_nm.get_kps(obj_id, ds_type="neuromeka")
+        if use_ctr:
+            mesh_ctr = bs_utils_nm.get_ctr(obj_id, ds_type="neuromeka").reshape(1, 3)
+            mesh_kps = np.concatenate((mesh_kps, mesh_ctr), axis=0)
+        # mesh_kps = torch.from_numpy(mesh_kps.astype(np.float32)).cuda()
+        pred_RT = best_fit_transform(
+            mesh_kps,
+            cls_kps[cls_id].squeeze().contiguous().cpu().numpy()
+        )
+        pred_pose_lst.append(pred_RT)
+    return pred_pose_lst
 
 # ###############################LineMOD Evaluation###############################
 

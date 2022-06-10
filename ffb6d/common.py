@@ -13,11 +13,11 @@ class ConfigRandLA:
     k_n = 16  # KNN
     num_layers = 4  # Number of layers
     num_points = 480 * 640 // 24  # Number of input points
-    num_classes = 22  # Number of valid classes
+    num_classes = 3  # Number of valid classes
     sub_grid_size = 0.06  # preprocess_parameter
 
-    batch_size = 3  # batch_size during training
-    val_batch_size = 3  # batch_size during validation and test
+    batch_size = 2  # batch_size during training
+    val_batch_size = 2  # batch_size during validation and test
     train_steps = 500  # Number of steps per epochs
     val_steps = 100  # Number of validation steps per epoch
     in_c = 9
@@ -28,7 +28,7 @@ class ConfigRandLA:
 
 
 class Config:
-    def __init__(self, ds_name='ycb', cls_type=''):
+    def __init__(self, args=None, ds_name='ycb', cls_type=''):
         self.dataset_name = ds_name
         self.exp_dir = os.path.dirname(__file__)
         self.exp_name = os.path.basename(self.exp_dir)
@@ -53,10 +53,16 @@ class Config:
         self.log_traininfo_dir = os.path.join(self.log_dir, 'train_info', self.cls_type)
         ensure_fd(self.log_traininfo_dir)
 
-        self.n_total_epoch = 25
-        self.mini_batch_size = 3
-        self.val_mini_batch_size = 3
-        self.test_mini_batch_size = 1
+        if args is not None:
+            self.n_total_epoch = args.epochs
+            self.mini_batch_size = args.train_bs
+            self.val_mini_batch_size = args.val_bs
+            self.test_mini_batch_size = args.test_bs
+        else:
+            self.n_total_epoch = 2
+            self.mini_batch_size = 2
+            self.val_mini_batch_size = 2
+            self.test_mini_batch_size = 2
 
         self.n_sample_points = 480 * 640 // 24  # Number of input points
         self.n_keypoints = 8
@@ -94,6 +100,46 @@ class Config:
             self.ycb_r_lst = list(np.loadtxt(ycb_r_lst_p))
             self.ycb_cls_lst = self.read_lines(self.ycb_cls_lst_p)
             self.ycb_sym_cls_ids = [13, 16, 19, 20, 21]
+
+        elif self.dataset_name == 'neuromeka':
+            self.n_objects = 1 + 1
+            self.n_classes = self.n_objects
+            self.use_orbfps = True
+            self.kp_orbfps_dir = 'datasets/neuromeka/neuromeka_kps/'
+            self.kp_orbfps_ptn = os.path.join(self.kp_orbfps_dir, '%s_ORB_fps.txt')
+            self.neuromeka_cls_lst_p = os.path.abspath(
+                os.path.join(
+                    self.exp_dir, 'datasets/neuromeka/classes.txt'
+                )
+            )
+            self.neuromeka_root = os.path.abspath(
+                os.path.join(
+                    self.exp_dir, 'datasets/neuromeka'
+                )
+            )
+            self.neuromeka_kps_dir = os.path.abspath(
+                os.path.join(
+                    self.exp_dir, self.kp_orbfps_dir
+                )
+            )
+            neuromeka_r_lst_p = os.path.abspath(
+                os.path.join(
+                    self.exp_dir, 'datasets/neuromeka/neuromeka_kps/all_radius.txt'
+                )
+            )
+            self.neuromeka_r_lst = list(np.loadtxt(neuromeka_r_lst_p))
+            self.neuromeka_cls_lst = self.read_lines(self.neuromeka_cls_lst_p)
+            self.neuromeka_obj_dict = {
+                'bottle': 1,
+                'car': 2,
+                'doorstop': 3
+            }
+            self.neuromeka_id2obj_dict = dict(
+                zip(self.neuromeka_obj_dict.values(), self.neuromeka_obj_dict.keys())
+            )
+            # self.neuromeka_sym_cls_ids = [0, 1, 2]
+
+
         else:  # linemod
             self.n_objects = 1 + 1  # 1 object + background
             self.n_classes = self.n_objects
@@ -152,7 +198,11 @@ class Config:
                                 [0.      , 0.        , 1.0]], np.float32),
             'ycb_K2': np.array([[1077.836, 0.        , 323.7872],
                                 [0.      , 1078.189  , 279.6921],
-                                [0.      , 0.        , 1.0]], np.float32)
+                                [0.      , 0.        , 1.0]], np.float32),
+
+            'neuromeka': np.array([[610.70306, 0., 319.78845],
+                                [0., 610.40942, 242.05362],
+                                [0., 0., 1.0]], np.float32)
         }
 
     def read_lines(self, p):
