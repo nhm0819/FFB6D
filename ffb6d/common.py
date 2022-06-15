@@ -16,8 +16,8 @@ class ConfigRandLA:
     num_classes = 3  # Number of valid classes
     sub_grid_size = 0.06  # preprocess_parameter
 
-    batch_size = 2  # batch_size during training
-    val_batch_size = 2  # batch_size during validation and test
+    batch_size = 4  # batch_size during training
+    val_batch_size = 4  # batch_size during validation and test
     train_steps = 500  # Number of steps per epochs
     val_steps = 100  # Number of validation steps per epoch
     in_c = 9
@@ -28,7 +28,7 @@ class ConfigRandLA:
 
 
 class Config:
-    def __init__(self, args=None, ds_name='ycb', cls_type=''):
+    def __init__(self, ds_name='ycb', cls_type=''):
         self.dataset_name = ds_name
         self.exp_dir = os.path.dirname(__file__)
         self.exp_name = os.path.basename(self.exp_dir)
@@ -53,16 +53,10 @@ class Config:
         self.log_traininfo_dir = os.path.join(self.log_dir, 'train_info', self.cls_type)
         ensure_fd(self.log_traininfo_dir)
 
-        if args is not None:
-            self.n_total_epoch = args.epochs
-            self.mini_batch_size = args.train_bs
-            self.val_mini_batch_size = args.val_bs
-            self.test_mini_batch_size = args.test_bs
-        else:
-            self.n_total_epoch = 2
-            self.mini_batch_size = 2
-            self.val_mini_batch_size = 2
-            self.test_mini_batch_size = 2
+        self.n_total_epoch = 10
+        self.mini_batch_size = 4
+        self.val_mini_batch_size = 4
+        self.test_mini_batch_size = 4
 
         self.n_sample_points = 480 * 640 // 24  # Number of input points
         self.n_keypoints = 8
@@ -134,6 +128,10 @@ class Config:
                 'car': 2,
                 'doorstop': 3
             }
+            try:
+                self.cls_id = self.neuromeka_obj_dict[cls_type]
+            except Exception:
+                pass
             self.neuromeka_id2obj_dict = dict(
                 zip(self.neuromeka_obj_dict.values(), self.neuromeka_obj_dict.keys())
             )

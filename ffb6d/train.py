@@ -573,20 +573,20 @@ def train():
         # train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds)
         train_loader = torch.utils.data.DataLoader(
             train_ds, batch_size=config.mini_batch_size, shuffle=False,
-            drop_last=True, num_workers=10, pin_memory=True
+            drop_last=True, num_workers=0, pin_memory=True
         )
 
         val_ds = dataset_desc.Dataset('test', cls_type=args.cls)
         # val_sampler = torch.utils.data.distributed.DistributedSampler(val_ds)
         val_loader = torch.utils.data.DataLoader(
             val_ds, batch_size=config.val_mini_batch_size, shuffle=False,
-            drop_last=False, num_workers=10
+            drop_last=False, num_workers=0
         )
     else:
         test_ds = dataset_desc.Dataset('test', cls_type=args.cls)
         test_loader = torch.utils.data.DataLoader(
             test_ds, batch_size=config.test_mini_batch_size, shuffle=False,
-            num_workers=10
+            num_workers=0
         )
 
     rndla_cfg = ConfigRandLA
@@ -627,10 +627,10 @@ def train():
             assert checkpoint_status is not None, "Failed loadding model."
 
     if not args.eval_net:
-        model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.local_rank], output_device=args.local_rank,
-            find_unused_parameters=True
-        )
+        # model = torch.nn.parallel.DistributedDataParallel(
+        #     model, device_ids=[args.local_rank], output_device=args.local_rank,
+        #     find_unused_parameters=True
+        # )
         clr_div = 2
         lr_scheduler = CyclicLR(
             optimizer, base_lr=1e-5, max_lr=1e-3,

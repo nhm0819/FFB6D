@@ -1,6 +1,9 @@
 # Weights & Biases
 import wandb
 
+# basic
+import numpy as np
+
 # Pytorch modules
 import torch
 from torch.nn import functional as F
@@ -11,120 +14,233 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau, CyclicLR
 from pytorch_lightning import LightningModule
 import pytorch_lightning as pl
 import torchmetrics
-from ffb6d.common import Config, ConfigRandLA
-from ffb6d.models.ffb6d import FFB6D
-from ffb6d.models.loss import OFLoss, FocalLoss
+
+# ffb6d
+from common import Config, ConfigRandLA
+from models.ffb6d import FFB6D
+from models.loss import OFLoss, FocalLoss
+from utils.pvn3d_eval_utils_kpls import TorchEval
 
 
 class pl_ffb6d(LightningModule):
 
-    def __init__(self, args, lr=1e-3, pretrained=False):
+    def __init__(self, config=None, ds_name="neuromeka", cls_type="bottle", data_length=80150,
+                 batch_size=4, lr=1e-3, weight_decay=0, epochs=10, gpus=-1):
         '''method used to define our model parameters'''
         super().__init__()
 
-        self.args = args
-        config = Config(ds_name='neuromeka', cls_type=args.cls)
+        self.config = config
+        self.ds_name = ds_name
+        self.cls_type = cls_type
+        self.batch_size = batch_size
+        self.lr = lr
+        self.gpus = gpus
+        self.weight_decay = weight_decay
+        self.epochs = epochs
+
+        config = Config(ds_name=self.ds_name, cls_type=cls_type)
         rndla_cfg = ConfigRandLA
-        model = FFB6D(
+        self.model = FFB6D(
             n_classes=config.n_objects, n_pts=config.n_sample_points, rndla_cfg=rndla_cfg,
             n_kps=config.n_keypoints
         )
 
-        self.minibatch_per_epoch = 70000 // self.args.train_bs
+        self.minibatch_per_epoch = data_length // self.batch_size
+        self.cls_div = 2
 
-        if self.args.gpus > 1 or self.args.gpus == -1:
-            model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        if gpus > 1 or torch.cuda.device_count() > 1:
+            self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
 
         # optimizer parameters
-        self.lr = self.args.lr
+        self.lr = lr
+
+        # loss
+        self.focal_loss = FocalLoss(gamma=2)
+        self.of_loss = OFLoss()
 
         # optional - save hyper-parameters to self.hparams
         # they will also be automatically logged as config parameters in W&B
         self.save_hyperparameters()
 
-    def forward(self, x):
-        x = self.model(x)
-        # x = self.softmax(x)
-        return x
+        self.torch_eval = TorchEval()
 
-
-    # convenient method to get the loss on a batch
-    def loss(self, x, y):
-        logits = self(x)  # this calls self.forward
-        loss = -F.nll_loss(logits, y)
-        return logits, loss
+    def forward(self, input):
+        """
+        model Params:
+        inputs: dict of :
+            rgb         : FloatTensor [bs, 3, h, w]
+            dpt_nrm     : FloatTensor [bs, 6, h, w], 3c xyz in meter + 3c normal map
+            cld_rgb_nrm : FloatTensor [bs, 9, npts]
+            choose      : LongTensor [bs, 1, npts]
+            xmap, ymap: [bs, h, w]
+            K:          [bs, 3, 3]
+        Returns: dict of :
+            pred_rgbd_segs  : FloatTensor --> Focal Loss(pred_rgbd_segs, labels.view(-1))
+            pred_kp_ofs     : FloatTensor --> OF Loss(pred_kp_ofs, kp_targ_ofst, labels)
+            pred_ctr_ofs    : FloatTensor --> OF Loss(pred_ctr_ofs, ctr_targ_ofst, labels)
+        """
+        end_points = self.model(input)
+        return end_points
 
 
     def training_step(self, batch, batch_idx):
         '''needs to return a loss from a single batch'''
-        x, y = batch
-        # logits = self(x)
-        # loss = F.nll_loss(logits, y)
-        logits, loss = self.loss(x, y)
+        data = batch
+        cu_dt = {}
+        for key in data.keys():
+            if data[key].dtype in [np.float32, np.uint8]:
+                cu_dt[key] = torch.from_numpy(data[key].astype(np.float32)).cuda()
+            elif data[key].dtype in [np.int32, np.uint32]:
+                cu_dt[key] = torch.LongTensor(data[key].astype(np.int32)).cuda()
+            elif data[key].dtype in [torch.uint8, torch.float32]:
+                cu_dt[key] = data[key].float().cuda()
+            elif data[key].dtype in [torch.int32, torch.int16]:
+                cu_dt[key] = data[key].long().cuda()
 
-        preds = torch.argmax(logits, 1)
+        end_points = self(cu_dt)
+
+        labels = cu_dt['labels']
+        loss_rgbd_seg = self.focal_loss(
+            end_points['pred_rgbd_segs'], labels.view(-1)
+        ).sum()
+        loss_kp_of = self.of_loss(
+            end_points['pred_kp_ofs'], cu_dt['kp_targ_ofst'], labels
+        ).sum()
+        loss_ctr_of = self.of_loss(
+            end_points['pred_ctr_ofs'], cu_dt['ctr_targ_ofst'], labels
+        ).sum()
+
+        loss_lst = [
+            (loss_rgbd_seg, 2.0), (loss_kp_of, 1.0), (loss_ctr_of, 1.0),
+        ]
+        loss = sum([ls * w for ls, w in loss_lst])
 
         # Log training loss
-        self.log('train_loss', loss)
+        self.log('train_loss_rgbd_seg', loss_rgbd_seg.item())
+        self.log('train_loss_kp_of', loss_kp_of.item())
+        self.log('train_loss_ctr_of', loss_ctr_of.item())
+        self.log('train_loss', loss.item())
 
         # Log metrics
-        self.log('train_acc', self.accuracy(preds, y))
+        _, cls_rgbd = torch.max(end_points['pred_rgbd_segs'], 1)
+        acc_rgbd = (cls_rgbd == labels).float().sum() / labels.numel()
+        self.log('train_acc', acc_rgbd.item())
 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, y = batch
-        logits, loss = self.loss(x, y)
-        preds = torch.argmax(logits, 1)
+        data = batch
+        cu_dt = {}
+        for key in data.keys():
+            if data[key].dtype in [np.float32, np.uint8]:
+                cu_dt[key] = torch.from_numpy(data[key].astype(np.float32)).cuda()
+            elif data[key].dtype in [np.int32, np.uint32]:
+                cu_dt[key] = torch.LongTensor(data[key].astype(np.int32)).cuda()
+            elif data[key].dtype in [torch.uint8, torch.float32]:
+                cu_dt[key] = data[key].float().cuda()
+            elif data[key].dtype in [torch.int32, torch.int16]:
+                cu_dt[key] = data[key].long().cuda()
 
-        self.log("val_loss", loss)  # default on val/test is on_epoch only
-        self.log('val_acc', self.accuracy(preds, y))
+        end_points = self(cu_dt)
 
-        return logits
+        labels = cu_dt['labels']
+        loss_rgbd_seg = self.focal_loss(
+            end_points['pred_rgbd_segs'], labels.view(-1)
+        ).sum()
+        loss_kp_of = self.of_loss(
+            end_points['pred_kp_ofs'], cu_dt['kp_targ_ofst'], labels
+        ).sum()
+        loss_ctr_of = self.of_loss(
+            end_points['pred_ctr_ofs'], cu_dt['ctr_targ_ofst'], labels
+        ).sum()
 
-    def validation_epoch_end(self, validation_step_outputs):
-        dummy_input = torch.zeros((3, 320, 320), device=self.device)
-        model_filename = f"model_{str(self.global_step).zfill(5)}.pt"
-        self.to_torchscript(model_filename, method="script", example_inputs=dummy_input)
-        wandb.save(model_filename)
+        loss_lst = [
+            (loss_rgbd_seg, 2.0), (loss_kp_of, 1.0), (loss_ctr_of, 1.0),
+        ]
+        loss = sum([ls * w for ls, w in loss_lst])
 
-        flattened_logits = torch.flatten(torch.cat(validation_step_outputs))
-        self.logger.experiment.log(
-            {"valid_logits": wandb.Histogram(flattened_logits.to("cpu")),
-             "global_step": self.global_step})
+        # Log training loss
+        self.log('val_loss_rgbd_seg', loss_rgbd_seg.item())
+        self.log('val_loss_kp_of', loss_kp_of.item())
+        self.log('val_loss_ctr_of', loss_ctr_of.item())
+        self.log('val_loss', loss.item())
+
+        # Log metrics
+        _, cls_rgbd = torch.max(end_points['pred_rgbd_segs'], 1)
+        acc_rgbd = (cls_rgbd == labels).float().sum() / labels.numel()
+        self.log('val_acc', acc_rgbd.item())
+
+        return end_points
+
+    # def validation_epoch_end(self, validation_step_outputs):
+    #     save_path = f"train_log/{self.ds_name}/ckpt/model_{str(self.global_step).zfill(5)}.pt"
+    #     self.to_torchscript(save_path, method="script")
+    #
+    #     pred_rgbd_segs_logits = torch.flatten(torch.cat(validation_step_outputs['pred_rgbd_segs']))
+    #     pred_kp_ofs_logits = torch.flatten(torch.cat(validation_step_outputs['pred_kp_ofs']))
+    #     pred_ctr_ofs_logits = torch.flatten(torch.cat(validation_step_outputs['pred_ctr_ofs']))
+    #     self.logger.experiment.log(
+    #         {"pred_rgbd_segs_logits": wandb.Histogram(pred_rgbd_segs_logits.to("cpu")),
+    #          "pred_kp_ofs_logits": wandb.Histogram(pred_kp_ofs_logits.to("cpu")),
+    #          "pred_ctr_ofs_logits": wandb.Histogram(pred_ctr_ofs_logits.to("cpu")),
+    #          "global_step": self.global_step})
 
 
     def test_step(self, batch, batch_idx):
-        x, y = batch
-        logits, loss = self.loss(x, y)
-        preds = torch.argmax(logits, 1)
+        data = batch
+        cu_dt = {}
+        for key in data.keys():
+            if data[key].dtype in [np.float32, np.uint8]:
+                cu_dt[key] = torch.from_numpy(data[key].astype(np.float32)).cuda()
+            elif data[key].dtype in [np.int32, np.uint32]:
+                cu_dt[key] = torch.LongTensor(data[key].astype(np.int32)).cuda()
+            elif data[key].dtype in [torch.uint8, torch.float32]:
+                cu_dt[key] = data[key].float().cuda()
+            elif data[key].dtype in [torch.int32, torch.int16]:
+                cu_dt[key] = data[key].long().cuda()
 
-        self.log("test_loss", loss, on_step=False, on_epoch=True)
-        self.log("test_acc", self.accuracy(preds, y), on_step=False, on_epoch=True)
+        end_points = self(cu_dt)
 
-    def test_epoch_end(self, test_step_outputs):  # args are defined as part of pl API
-        dummy_input = torch.zeros((3, 320, 320), device=self.device)
-        model_filename = "model_final.pt"
-        # self.to_onnx(model_filename, dummy_input, export_params=True)
-        self.to_torchscript(model_filename, method="script", example_inputs=dummy_input)
-        wandb.save(model_filename)
+        labels = cu_dt['labels']
+        loss_rgbd_seg = self.focal_loss(
+            end_points['pred_rgbd_segs'], labels.view(-1)
+        ).sum()
+        loss_kp_of = self.of_loss(
+            end_points['pred_kp_ofs'], cu_dt['kp_targ_ofst'], labels
+        ).sum()
+        loss_ctr_of = self.of_loss(
+            end_points['pred_ctr_ofs'], cu_dt['ctr_targ_ofst'], labels
+        ).sum()
 
-        flattened_logits = torch.flatten(torch.cat(test_step_outputs))
-        self.logger.experiment.log(
-            {"test_logits": wandb.Histogram(flattened_logits.to("cpu")),
-             "global_step": self.global_step})
+        loss_lst = [
+            (loss_rgbd_seg, 2.0), (loss_kp_of, 1.0), (loss_ctr_of, 1.0),
+        ]
+        loss = sum([ls * w for ls, w in loss_lst])
+
+        # Log training loss
+        self.log('test_loss_rgbd_seg', loss_rgbd_seg.item())
+        self.log('test_loss_kp_of', loss_kp_of.item())
+        self.log('test_loss_ctr_of', loss_ctr_of.item())
+        self.log('test_loss', loss.item())
+
+        # Log metrics
+        _, cls_rgbd = torch.max(end_points['pred_rgbd_segs'], 1)
+        acc_rgbd = (cls_rgbd == labels).float().sum() / labels.numel()
+        self.log('test_acc', acc_rgbd.item())
 
 
     def configure_optimizers(self):
         '''defines model optimizer'''
-        optimizer = Adam(self.parameters(), lr=self.lr, weight_decay=self.args.weight_decay)
+        optimizer = Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         lr_scheduler = CyclicLR(
             optimizer, base_lr=1e-5, max_lr=1e-3,
             cycle_momentum=False,
-            step_size_up=self.args.epochs * self.minibatch_per_epoch // 2 // self.args.gpus,
-            step_size_down=self.args.epochs * self.minibatch_per_epoch // 2 // self.args.gpus,
+            step_size_up=self.epochs * self.minibatch_per_epoch // self.cls_div // self.gpus,
+            step_size_down=self.epochs * self.minibatch_per_epoch // self.cls_div // self.gpus,
             mode='triangular'
         )
+
+        # TODO : To Apply Batch Normalization Scheduler
 
         return {
         "optimizer": optimizer,

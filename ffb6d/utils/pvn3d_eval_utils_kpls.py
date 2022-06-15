@@ -15,19 +15,17 @@ except Exception:
     from cv2 import imshow, waitKey
 
 
-config = Config(ds_name='ycb')
+# config = Config(ds_name='ycb')
+# bs_utils = Basic_Utils(config)
+# cls_lst = config.ycb_cls_lst
+# try:
+#     config_lm = Config(ds_name="linemod")
+#     bs_utils_lm = Basic_Utils(config_lm)
+# except Exception as ex:
+#     print(ex)
+config = Config(ds_name="neuromeka", cls_type='bottle')
+cls_lst = config.neuromeka_cls_lst
 bs_utils = Basic_Utils(config)
-cls_lst = config.ycb_cls_lst
-try:
-    config_lm = Config(ds_name="linemod")
-    bs_utils_lm = Basic_Utils(config_lm)
-except Exception as ex:
-    print(ex)
-try:
-    config_nm = Config(ds_name="neuromeka")
-    bs_utils_nm = Basic_Utils(config_nm)
-except Exception as ex:
-    print(ex)
 
 
 
@@ -275,9 +273,9 @@ def cal_frame_poses_nm(
             imshow("kp: cls_id=%d" % cls_id, show_kp_img)
             waitKey(0)
 
-        mesh_kps = bs_utils_nm.get_kps(obj_id, ds_type="neuromeka")
+        mesh_kps = bs_utils.get_kps(obj_id, ds_type="neuromeka")
         if use_ctr:
-            mesh_ctr = bs_utils_nm.get_ctr(obj_id, ds_type="neuromeka").reshape(1, 3)
+            mesh_ctr = bs_utils.get_ctr(obj_id, ds_type="neuromeka").reshape(1, 3)
             mesh_kps = np.concatenate((mesh_kps, mesh_ctr), axis=0)
         # mesh_kps = torch.from_numpy(mesh_kps.astype(np.float32)).cuda()
         pred_RT = best_fit_transform(

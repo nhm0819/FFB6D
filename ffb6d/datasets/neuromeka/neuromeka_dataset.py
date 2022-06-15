@@ -27,11 +27,12 @@ from datasets.neuromeka.preprocs import read_objects, read_view, calc_Tco,\
 
 class Dataset():
 
-    def __init__(self, dataset_name, cls_type="bottle", DEBUG=False):
+    def __init__(self, dataset_name, cls_type="bottle", batch_size=0, DEBUG=False):
         self.DEBUG = DEBUG
         self.config = Config(ds_name='neuromeka', cls_type=cls_type)
         self.bs_utils = Basic_Utils(self.config)
         self.dataset_name = dataset_name
+        self.batch_size = batch_size
         self.xmap = np.array([[j for i in range(640)] for j in range(480)])
         self.ymap = np.array([[i for i in range(640)] for j in range(480)])
 
@@ -57,12 +58,16 @@ class Dataset():
             )
             self.real_lst = self.bs_utils.read_lines(real_img_pth)
 
-            ###### TODO : make renders and fuses
+
 
             rnd_img_ptn = os.path.join(
                 self.root, 'renders/%s/*.pkl' % cls_type
             )
             self.rnd_lst = glob(rnd_img_ptn)
+
+            ###### TODO : delete below line
+            self.rnd_lst = self.rnd_lst[:7000]
+            #############
             print("render data length: ", len(self.rnd_lst))
             if len(self.rnd_lst) == 0:
                 warning = "Warning: "
@@ -74,6 +79,12 @@ class Dataset():
                 self.root, 'fuse/%s/*.pkl' % cls_type
             )
             self.fuse_lst = glob(fuse_img_ptn)
+
+            ###### TODO : delete below line
+            self.fuse_lst = self.fuse_lst[:1000]
+            #############
+
+
             print("fused data length: ", len(self.fuse_lst))
             if len(self.fuse_lst) == 0:
                 warning = "Warning: "
@@ -82,7 +93,10 @@ class Dataset():
                 print(colored(warning, "red", attrs=['bold']))
 
             self.all_lst = self.real_lst + self.rnd_lst + self.fuse_lst
-            self.minibatch_per_epoch = len(self.all_lst) // self.config.mini_batch_size
+            if self.batch_size != 0:
+                self.minibatch_per_epoch = len(self.all_lst) // self.batch_size
+            else:
+                self.minibatch_per_epoch = len(self.all_lst) // self.config.mini_batch_size
 
             ######
 
@@ -251,7 +265,6 @@ class Dataset():
             file_pose = os.path.join(os.path.join(self.cls_root, folder_name, "poses", file_name + ".csv"))
             file_config = os.path.join(os.path.join(self.cls_root, folder_name, "config", file_name + ".csv"))
 
-
             obj = read_objects(file_config)[0]
             view = read_view(file_pose)
             Tco = np.matmul(self.Tx180, calc_Tco(obj, view))
@@ -275,13 +288,12 @@ class Dataset():
                     rgb = self.rgb_add_noise(rgb)
 
         dpt_mm = dpt_mm.copy().astype(np.uint16)
-        # nrm_map = dpt_buff / 255
+
         nrm_map = normalSpeed.depth_normal(
-            dpt_mm, K[0][0], K[1][1], 5, int(DEPTH_SCALE_HQ), int(DEPTH_SCALE_HQ/100), False
+            dpt_mm, K[0][0], K[1][1], 5, int(DEPTH_SCALE_HQ), int(DEPTH_SCALE_HQ / 100), False
         )
-        # nrm_map = normalSpeed.depth_normal(
-        #     dpt_mm, K[0][0], K[1][1], 5, 2000, 20, False
-        # )
+        # nrm_map = dpt_buff.astype(np.float32) / 255
+
         if self.DEBUG:
             show_nrm_map = ((nrm_map + 1.0) * 127).astype(np.uint8)
             # imshow("nrm_map", show_nrm_map)
@@ -448,7 +460,11 @@ class Dataset():
             ctr_targ_ofst[msk_idx, :] = target_offset[msk_idx, :]
             cls_ids[i, :] = np.array([1])
 
-            self.minibatch_per_epoch = len(self.all_lst) // self.config.mini_batch_size
+            if self.batch_size != 0:
+                self.minibatch_per_epoch = len(self.all_lst) // self.batch_size
+            else:
+                self.minibatch_per_epoch = len(self.all_lst) // self.config.mini_batch_size
+
             if self.config.n_keypoints == 8:
                 kp_type = 'farthest'
             else:
@@ -486,7 +502,7 @@ class Dataset():
 def main():
     # config.mini_batch_size = 1
     ds = {}
-    cls = 'duck'
+    cls = 'bottle'
     ds['train'] = Dataset('train', cls, DEBUG=True)
     ds['test'] = Dataset('test', cls, DEBUG=True)
     idx = dict(
