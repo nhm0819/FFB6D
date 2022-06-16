@@ -120,10 +120,10 @@ def main():
                    checkpoint_callback], # see Callbacks section
         precision=16,
         check_val_every_n_epoch=args.checkpoint,
-        strategy="ddp_find_unused_parameters_false",
+        strategy= 'ddp', # "ddp_find_unused_parameters_false",
         # plugins=DDPPlugin,
         auto_scale_batch_size=True,
-        profiler='simple'
+        profiler='pytorch' # 'simple'
     )
 
     # fit the model
