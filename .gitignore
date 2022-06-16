@@ -28,6 +28,9 @@ ffb6d/datasets/neuromeka/Dataset Usage Guide.ipynb
 !ffb6d/datasets/neuromeka/EDA.py
 !ffb6d/datasets/neuromeka/preprocs.py
 
+!ffb6d/models/RandLA/**/*.so
+
+
 
 apex/
 normalSpeed/
