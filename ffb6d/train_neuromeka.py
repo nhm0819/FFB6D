@@ -114,8 +114,9 @@ parser.add_argument('--opt_level', default="O0", type=str,
 args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
-
-config = Config(ds_name='neuromeka', cls_type=args.cls)
+from datetime import datetime
+now = datetime.now().strftime('%Y-%m-%d-%Hh-%Mm-%Ss')
+config = Config(ds_name='neuromeka', cls_type=args.cls, now=now)
 bs_utils = Basic_Utils(config)
 writer = SummaryWriter(log_dir=config.log_traininfo_dir)
 
@@ -582,7 +583,7 @@ def train():
     torch.manual_seed(0)
 
     # TODO : wandb
-    wandb.init(project="neuromeka-bottle", name="1")
+    wandb.init(project="neuromeka-bottle", name=now)
 
     if not args.eval_net:
         train_ds = dataset_desc.Dataset('train', cls_type=args.cls)

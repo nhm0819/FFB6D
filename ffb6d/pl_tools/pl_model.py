@@ -170,7 +170,7 @@ class pl_ffb6d(LightningModule):
         acc_rgbd = (cls_rgbd == labels).float().sum() / labels.numel()
         self.log('val_acc', acc_rgbd.item())
 
-        return end_points
+        # return end_points
 
     # def validation_epoch_end(self, validation_step_outputs):
     #     save_path = f"train_log/{self.ds_name}/ckpt/model_{str(self.global_step).zfill(5)}.pt"

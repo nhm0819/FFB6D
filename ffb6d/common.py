@@ -28,8 +28,9 @@ class ConfigRandLA:
 
 
 class Config:
-    def __init__(self, ds_name='ycb', cls_type=''):
+    def __init__(self, ds_name='ycb', cls_type='', now=''):
         self.dataset_name = ds_name
+        self.dataset_dir = "/mnt/data"
         self.exp_dir = os.path.dirname(__file__)
         self.exp_name = os.path.basename(self.exp_dir)
         self.resnet_ptr_mdl_p = os.path.abspath(
@@ -38,19 +39,22 @@ class Config:
                 'models/cnn/ResNet_pretrained_mdl'
             )
         )
+        if not os.path.isfile(os.path.join(self.resnet_ptr_mdl_p, 'resnet34-333f7ec4.pth')):
+            self.resnet_ptr_mdl_p = "/mnt/data/cnn"
         ensure_fd(self.resnet_ptr_mdl_p)
 
         # log folder
         self.cls_type = cls_type
         self.log_dir = os.path.abspath(
-            os.path.join(self.exp_dir, 'train_log', self.dataset_name)
+            os.path.join(self.dataset_dir, 'train_log', self.cls_type)
         )
         ensure_fd(self.log_dir)
-        self.log_model_dir = os.path.join(self.log_dir, 'checkpoints', self.cls_type)
+        self.log_model_dir = os.path.join(self.log_dir, 'checkpoints', now)
+        self.log_eval_dir = os.path.join(self.log_dir, 'eval_results', now)
+        self.log_traininfo_dir = os.path.join(self.log_dir, 'train_info', now)
+
         ensure_fd(self.log_model_dir)
-        self.log_eval_dir = os.path.join(self.log_dir, 'eval_results', self.cls_type)
         ensure_fd(self.log_eval_dir)
-        self.log_traininfo_dir = os.path.join(self.log_dir, 'train_info', self.cls_type)
         ensure_fd(self.log_traininfo_dir)
 
         self.n_total_epoch = 10
@@ -99,26 +103,23 @@ class Config:
             self.n_objects = 1 + 1
             self.n_classes = self.n_objects
             self.use_orbfps = True
-            self.kp_orbfps_dir = 'datasets/neuromeka/neuromeka_kps/'
+            self.neuromeka_root = os.path.abspath(
+                os.path.join(
+                    self.dataset_dir, 'neuromeka'
+                )
+            )
+            self.kp_orbfps_dir = os.path.join(self.neuromeka_root, 'obj_kps')
             self.kp_orbfps_ptn = os.path.join(self.kp_orbfps_dir, '%s_ORB_fps.txt')
             self.neuromeka_cls_lst_p = os.path.abspath(
                 os.path.join(
-                    self.exp_dir, 'datasets/neuromeka/classes.txt'
+                    self.neuromeka_root, 'classes.txt'
                 )
             )
-            self.neuromeka_root = os.path.abspath(
-                os.path.join(
-                    self.exp_dir, 'datasets/neuromeka'
-                )
-            )
-            self.neuromeka_kps_dir = os.path.abspath(
-                os.path.join(
-                    self.exp_dir, self.kp_orbfps_dir
-                )
-            )
+
+            self.neuromeka_kps_dir = os.path.abspath(self.kp_orbfps_dir)
             neuromeka_r_lst_p = os.path.abspath(
                 os.path.join(
-                    self.exp_dir, 'datasets/neuromeka/neuromeka_kps/all_radius.txt'
+                    self.neuromeka_kps_dir, 'all_radius.txt'
                 )
             )
             self.neuromeka_r_lst = list(np.loadtxt(neuromeka_r_lst_p))

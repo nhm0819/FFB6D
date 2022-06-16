@@ -19,7 +19,8 @@ parser.add_argument(
     help="path to object ply."
 )
 parser.add_argument(
-    "--sv_fd", type=str, help="path to save the generated mesh info."
+    "--sv_fd", type=str, default="/home/nhm/work/FFB6D/ffb6d/datasets/gen_obj",
+    help="path to save the generated mesh info."
 )
 parser.add_argument(
     '--scale2m', type=float, default=1.0,
@@ -92,54 +93,10 @@ def get_farthest_3d(p3ds, num=8, init_center=False):
 def gen_one_mesh_info(args, obj_pth, sv_fd):
     sys_utils.ensure_dir(sv_fd)
 
-    # p3ds = mesh_utils.get_p3ds_from_mesh(obj_pth, scale2m=args.scale2m)
-    #
-    # c3ds = mesh_utils.get_3D_bbox(p3ds)
-    # c3ds_pth = os.path.join(sv_fd, "%s_corners.txt" % args.obj_name)
-    #
-    #
-    # with open(c3ds_pth, 'w') as of:
-    #     for p3d in c3ds:
-    #         print(p3d[0], p3d[1], p3d[2], file=of)
-    #
-    # radius = mesh_utils.get_r(c3ds)
-    # r_pth = os.path.join(sv_fd, "%s_radius.txt" % args.obj_name)
-    # with open(r_pth, 'w') as of:
-    #     print(radius, file=of)
-    #
-    # ctr = mesh_utils.get_centers_3d(c3ds)
-    # ctr_pth = os.path.join(sv_fd, "%s_center.txt" % args.obj_name)
-    # with open(ctr_pth, 'w') as of:
-    #     print(ctr[0], ctr[1], ctr[2], file=of)
-    #
-    # fps = get_farthest_3d(p3ds, num=args.n_keypoint)
-    # fps_pth = os.path.join(sv_fd, "%s_fps.txt" % args.obj_name)
-    # with open(fps_pth, 'w') as of:
-    #     for p3d in fps:
-    #         print(p3d[0], p3d[1], p3d[2], file=of)
-    #
-    # textured_kp3ds = np.array(extract_textured_kp3ds(args, args.obj_pth))
-    # print(p3ds.shape, textured_kp3ds.shape)
-    # textured_fps = get_farthest_3d(textured_kp3ds, num=args.n_keypoint)
-    # textured_fps_pth = os.path.join(sv_fd, "%s_%s_fps.txt" % (args.obj_name, args.extractor))
-    # with open(textured_fps_pth, 'w') as of:
-    #     for p3d in textured_fps:
-    #         print(p3d[0], p3d[1], p3d[2], file=of)
-
-
-    ##########################################custom
-    args.sv_fd = "/home/nhm/work/data/neuromeka/colored cads/03"
-    sv_fd = args.sv_fd
-    args.obj_name = "doorstop"
-    args.obj_pth = f"{sv_fd}/{args.obj_name}_obj_res.obj"
-    obj_pth = args.obj_pth
-
     p3ds = mesh_utils.get_p3ds_from_mesh(obj_pth, scale2m=args.scale2m)
 
     c3ds = mesh_utils.get_3D_bbox(p3ds)
     c3ds_pth = os.path.join(sv_fd, "%s_corners.txt" % args.obj_name)
-
-
     with open(c3ds_pth, 'w') as of:
         for p3d in c3ds:
             print(p3d[0], p3d[1], p3d[2], file=of)
@@ -160,7 +117,6 @@ def gen_one_mesh_info(args, obj_pth, sv_fd):
         for p3d in fps:
             print(p3d[0], p3d[1], p3d[2], file=of)
 
-    # textured_kp3ds = np.array(extract_textured_kp3ds(args, args.obj_pth))
     textured_kp3ds = np.array(extract_textured_kp3ds(args, args.obj_pth))
     print(p3ds.shape, textured_kp3ds.shape)
     textured_fps = get_farthest_3d(textured_kp3ds, num=args.n_keypoint)
@@ -168,7 +124,6 @@ def gen_one_mesh_info(args, obj_pth, sv_fd):
     with open(textured_fps_pth, 'w') as of:
         for p3d in textured_fps:
             print(p3d[0], p3d[1], p3d[2], file=of)
-
 
 
 def main():

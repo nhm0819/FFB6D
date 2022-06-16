@@ -27,9 +27,9 @@ from datasets.neuromeka.preprocs import read_objects, read_view, calc_Tco,\
 
 class Dataset():
 
-    def __init__(self, dataset_name, cls_type="bottle", batch_size=0, DEBUG=False):
+    def __init__(self, dataset_name, cls_type="bottle", batch_size=0, DEBUG=False, now=''):
         self.DEBUG = DEBUG
-        self.config = Config(ds_name='neuromeka', cls_type=cls_type)
+        self.config = Config(ds_name='neuromeka', cls_type=cls_type, now=now)
         self.bs_utils = Basic_Utils(self.config)
         self.dataset_name = dataset_name
         self.batch_size = batch_size
@@ -66,7 +66,7 @@ class Dataset():
             self.rnd_lst = glob(rnd_img_ptn)
 
             ###### TODO : delete below line
-            self.rnd_lst = self.rnd_lst[:7000]
+            # self.rnd_lst = self.rnd_lst[:7000]
             #############
             print("render data length: ", len(self.rnd_lst))
             if len(self.rnd_lst) == 0:
@@ -81,7 +81,7 @@ class Dataset():
             self.fuse_lst = glob(fuse_img_ptn)
 
             ###### TODO : delete below line
-            self.fuse_lst = self.fuse_lst[:1000]
+            # self.fuse_lst = self.fuse_lst[:1000]
             #############
 
 
