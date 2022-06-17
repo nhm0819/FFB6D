@@ -179,7 +179,7 @@ def main():
         test_ds = LM_Dataset('test', cls_type=args.cls)
         obj_id = config.lm_obj_dict[args.cls]
     test_loader = torch.utils.data.DataLoader(
-        test_ds, batch_size=config.test_mini_batch_size, shuffle=False,
+        test_ds, batch_size=1, shuffle=False,
         num_workers=0
     )
 

@@ -12,14 +12,14 @@ from utils import MeshUtils, ImgPcldUtils, SysUtils
 
 parser = ArgumentParser()
 parser.add_argument(
-    "--obj_name", type=str, default="ape", help="Object name."
+    "--obj_name", type=str, default="bottle", help="Object name."
 )
 parser.add_argument(
-    "--obj_pth", type=str, default="example_mesh/ape.ply",
+    "--obj_pth", type=str, default="../../datasets/neuromeka/models/bottle_obj_res.ply",
     help="path to object ply."
 )
 parser.add_argument(
-    "--sv_fd", type=str, default="/home/nhm/work/FFB6D/ffb6d/datasets/gen_obj",
+    "--sv_fd", type=str, default="../../datasets/gen_ply",
     help="path to save the generated mesh info."
 )
 parser.add_argument(
@@ -117,7 +117,7 @@ def gen_one_mesh_info(args, obj_pth, sv_fd):
         for p3d in fps:
             print(p3d[0], p3d[1], p3d[2], file=of)
 
-    textured_kp3ds = np.array(extract_textured_kp3ds(args, args.obj_pth))
+    textured_kp3ds = np.array(extract_textured_kp3ds(args, args.obj_pth, sv_fd=sv_fd))
     print(p3ds.shape, textured_kp3ds.shape)
     textured_fps = get_farthest_3d(textured_kp3ds, num=args.n_keypoint)
     textured_fps_pth = os.path.join(sv_fd, "%s_%s_fps.txt" % (args.obj_name, args.extractor))

@@ -72,7 +72,7 @@ parser.add_argument(
     help="Checkpoint to start from"
 )
 parser.add_argument(
-    "-epochs", type=int, default=1000, help="Number of epochs to train for"
+    "-epochs", type=int, default=10, help="Number of epochs to train for"
 )
 parser.add_argument(
     "-num_workers", type=int, default=10, help="Number of epochs to train for"
@@ -102,7 +102,7 @@ parser.add_argument('-g', '--gpus', default=1, type=int,
                     help='number of gpus per node')
 parser.add_argument('-nr', '--nr', default=0, type=int,
                     help='ranking within the nodes')
-parser.add_argument('--epochs', default=2, type=int,
+parser.add_argument('--epochs', default=10, type=int,
                     metavar='N', help='number of total epochs to run')
 parser.add_argument('--num_workers', default=10, type=int,
                     metavar='N')
@@ -301,8 +301,24 @@ def model_fn_decorator(
 
             if not is_eval:
                 if args.local_rank == 0:
-                    writer.add_scalars('loss', loss_dict, it)
+                    writer.add_scalars('train_loss', loss_dict, it)
                     writer.add_scalars('train_acc', acc_dict, it)
+                try:
+                    wandb.log(info_dict)
+                except:
+                    pass
+            elif is_eval:
+                wandb.log(
+                    {
+                        'val_loss_rgbd_seg': loss_rgbd_seg.item(),
+                        'val_loss_kp_of': loss_kp_of.item(),
+                        'val_loss_ctr_of': loss_ctr_of.item(),
+                        'val_loss_all': loss.item(),
+                        'val_loss_target': loss.item(),
+                        'val_acc_rgbd': acc_rgbd.item(),
+                    }
+                )
+
             if is_test and test_pose:
                 cld = cu_dt['cld_rgb_nrm'][:, :3, :].permute(0, 2, 1).contiguous()
 
@@ -427,10 +443,20 @@ class Trainer(object):
             with open(os.path.join(config.log_eval_dir, seg_res_fn), 'w') as of:
                 for k, v in acc_dict.items():
                     print(k, v, file=of)
-        # if args.local_rank == 0:
-            # writer.add_scalars('val_acc', acc_dict, it)
         if args.local_rank == 0:
-            wandb.log({'val_acc': acc_dict})
+            writer.add_scalars('val_acc', acc_dict, it)
+
+            try:
+                wandb.log('val_total_loss', total_loss)
+                wandb.log('val_loss_rgbd_seg', mean_eval_dict['loss_rgbd_seg'])
+                wandb.log('val_loss_kp_of', mean_eval_dict['loss_kp_of'])
+                wandb.log('val_loss_ctr_of', mean_eval_dict['loss_ctr_of'])
+                wandb.log('val_loss_all', mean_eval_dict['loss_all'])
+                wandb.log('val_loss_target', mean_eval_dict['loss_target'])
+                wandb.log('val_acc_rgbd', mean_eval_dict['acc_rgbd'])
+            except:
+                pass
+
 
         return total_loss / count, eval_dict
 
@@ -480,8 +506,6 @@ class Trainer(object):
         it = start_it
         _, eval_frequency = is_to_eval(0, it)
 
-        # TODO : wandb
-        wandb.watch(models=self.model, criterion=self.optimizer, log="gradients", log_graph=False)
 
         with tqdm.tqdm(range(config.n_total_epoch), desc="%s_epochs" % args.cls) as tbar, tqdm.tqdm(
             total=eval_frequency, leave=False, desc="train"
@@ -527,13 +551,14 @@ class Trainer(object):
                         self.viz.update("train", it, res)
 
                     # eval_flag, eval_frequency = is_to_eval(epoch, it)
-                    if it % 1000 == 0:
+                    # TODO : eval frequency
+                    if it % 370 == 0:
                         pbar.close()
 
                         if test_loader is not None:
                             val_loss, res = self.eval_epoch(test_loader, it=it)
                             print("val_loss", val_loss)
-                            wandb.log({'val_loss': val_loss})
+                            # wandb.log({'val_loss': val_loss})
 
                             is_best = val_loss < best_loss
                             best_loss = min(best_loss, val_loss)
@@ -683,6 +708,9 @@ def train():
         )
 
     checkpoint_fd = config.log_model_dir
+
+    # TODO : wandb
+    wandb.watch(models=model, criterion=optimizer, log="gradients", log_graph=False)
 
     trainer = Trainer(
         model,

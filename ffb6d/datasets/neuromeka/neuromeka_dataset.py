@@ -66,7 +66,7 @@ class Dataset():
             self.rnd_lst = glob(rnd_img_ptn)
 
             ###### TODO : delete below line
-            # self.rnd_lst = self.rnd_lst[:7000]
+            self.rnd_lst = []
             #############
             print("render data length: ", len(self.rnd_lst))
             if len(self.rnd_lst) == 0:
@@ -81,7 +81,7 @@ class Dataset():
             self.fuse_lst = glob(fuse_img_ptn)
 
             ###### TODO : delete below line
-            # self.fuse_lst = self.fuse_lst[:1000]
+            self.fuse_lst = []
             #############
 
 
@@ -500,9 +500,10 @@ class Dataset():
 
 
 def main():
+    import matplotlib.pyplot as plt
     # config.mini_batch_size = 1
     ds = {}
-    cls = 'bottle'
+    cls = 'doorstop'
     ds['train'] = Dataset('train', cls, DEBUG=True)
     ds['test'] = Dataset('test', cls, DEBUG=True)
     idx = dict(
@@ -535,12 +536,13 @@ def main():
                 rgb = ds[cat].bs_utils.draw_p2ds(
                     rgb, ctr_2ds, 4, (0, 0, 255)
                 )
-            imshow('{}_rgb'.format(cat), rgb)
-            cmd = waitKey(0)
-            if cmd == ord('q'):
-                exit()
-            else:
-                continue
+            plt.imshow(rgb)
+            # imshow('{}_rgb'.format(cat), rgb)
+            # cmd = waitKey(0)
+            # if cmd == ord('q'):
+            #     exit()
+            # else:
+            #     continue
 
 
 if __name__ == "__main__":
