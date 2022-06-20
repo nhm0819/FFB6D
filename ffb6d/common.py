@@ -25,12 +25,14 @@ class ConfigRandLA:
     sub_sampling_ratio = [4, 4, 4, 4]  # sampling ratio of random sampling at each layer
     d_out = [32, 64, 128, 256]  # feature dimension
     num_sub_points = [num_points // 4, num_points // 16, num_points // 64, num_points // 256]
+    dropout_rate = 0.5
 
 
 class Config:
-    def __init__(self, ds_name='ycb', cls_type='', now=''):
+    def __init__(self, ds_name='ycb', cls_type='', n_total_epoch=10, batch_size=4, now='',
+                 cad_file='ply', kps_extractor='ORB'):
         self.dataset_name = ds_name
-        self.dataset_dir = "/mnt/data"
+        self.dataset_dir = "/home/nhm/work/FFB6D/ffb6d/datasets"
         self.exp_dir = os.path.dirname(__file__)
         self.exp_name = os.path.basename(self.exp_dir)
         self.resnet_ptr_mdl_p = os.path.abspath(
@@ -42,6 +44,11 @@ class Config:
         if not os.path.isfile(os.path.join(self.resnet_ptr_mdl_p, 'resnet34-333f7ec4.pth')):
             self.resnet_ptr_mdl_p = "/mnt/data/cnn"
         ensure_fd(self.resnet_ptr_mdl_p)
+
+        if cad_file == 'ply_convert':
+            self.convert = True
+        self.cad_file = cad_file
+        self.kps_extractor = kps_extractor
 
         # log folder
         self.cls_type = cls_type
@@ -57,10 +64,10 @@ class Config:
         ensure_fd(self.log_eval_dir)
         ensure_fd(self.log_traininfo_dir)
 
-        self.n_total_epoch = 10
-        self.mini_batch_size = 4
-        self.val_mini_batch_size = 4
-        self.test_mini_batch_size = 4
+        self.n_total_epoch = n_total_epoch
+        self.mini_batch_size = batch_size
+        self.val_mini_batch_size = batch_size
+        self.test_mini_batch_size = batch_size
 
         self.n_sample_points = 480 * 640 // 24  # Number of input points
         self.n_keypoints = 8
@@ -102,14 +109,18 @@ class Config:
         elif self.dataset_name == 'neuromeka':
             self.n_objects = 1 + 1
             self.n_classes = self.n_objects
-            self.use_orbfps = True
+            if self.kps_extractor == "ORB":
+                self.use_orbfps = True
+            else:
+                self.use_orbfps = False
             self.neuromeka_root = os.path.abspath(
                 os.path.join(
                     self.dataset_dir, 'neuromeka'
                 )
             )
-            self.kp_orbfps_dir = os.path.join(self.neuromeka_root, 'obj_kps')
-            self.kp_orbfps_ptn = os.path.join(self.kp_orbfps_dir, '%s_ORB_fps.txt')
+            self.kp_orbfps_dir = os.path.join(self.neuromeka_root,
+                                              f'{self.cad_file}_{self.kps_extractor.lower()}_fps')
+            self.kp_orbfps_ptn = os.path.join(self.kp_orbfps_dir, f'%s_{self.kps_extractor}_fps.txt')
             self.neuromeka_cls_lst_p = os.path.abspath(
                 os.path.join(
                     self.neuromeka_root, 'classes.txt'
@@ -211,5 +222,5 @@ class Config:
             ]
 
 
-config = Config()
+# config = Config()
 # vim: ts=4 sw=4 sts=4 expandtab

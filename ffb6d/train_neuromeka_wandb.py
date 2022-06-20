@@ -32,12 +32,14 @@ from models.ffb6d import FFB6D
 from models.loss import OFLoss, FocalLoss
 from utils.pvn3d_eval_utils_kpls import TorchEval
 from utils.basic_utils import Basic_Utils
-import datasets.linemod.linemod_dataset as dataset_desc
+import datasets.neuromeka.neuromeka_dataset as dataset_desc
 
 from apex.parallel import DistributedDataParallel
 from apex.parallel import convert_syncbn_model
 from apex import amp
 from apex.multi_tensor_apply import multi_tensor_applier
+
+import wandb
 
 
 parser = argparse.ArgumentParser(description="Arg parser")
@@ -70,13 +72,16 @@ parser.add_argument(
     help="Checkpoint to start from"
 )
 parser.add_argument(
-    "-epochs", type=int, default=1000, help="Number of epochs to train for"
+    "-epochs", type=int, default=10, help="Number of epochs to train for"
+)
+parser.add_argument(
+    "-num_workers", type=int, default=10, help="Number of epochs to train for"
 )
 parser.add_argument(
     "-eval_net", action='store_true', help="whether is to eval net."
 )
 parser.add_argument(
-    '--cls', type=str, default="ape",
+    '--cls', type=str, default="car",
     help="Target object. (ape, benchvise, cam, can, cat, driller," +
     "duck, eggbox, glue, holepuncher, iron, lamp, phone)"
 )
@@ -97,23 +102,28 @@ parser.add_argument('-g', '--gpus', default=1, type=int,
                     help='number of gpus per node')
 parser.add_argument('-nr', '--nr', default=0, type=int,
                     help='ranking within the nodes')
-parser.add_argument('--epochs', default=2, type=int,
+parser.add_argument('--epochs', default=10, type=int,
                     metavar='N', help='number of total epochs to run')
-parser.add_argument('--gpu', type=str, default="0,1,2,3,4,5,6,7")
+parser.add_argument('--num_workers', default=8, type=int,
+                    metavar='N')
+parser.add_argument('--batch_size', type=str, default="4")
+parser.add_argument('--gpu', type=str, default="0")
 parser.add_argument('--deterministic', action='store_true')
 parser.add_argument('--keep_batchnorm_fp32', default=True)
 parser.add_argument('--opt_level', default="O0", type=str,
                     help='opt level of apex mix presision trainig.')
 args = parser.parse_args()
 
+from datetime import datetime
+now = datetime.now().strftime('%Y-%m-%d-%Hh-%Mm-%Ss')
+
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
-config = Config(ds_name='linemod', cls_type=args.cls)
+config = Config(ds_name='neuromeka', cls_type=args.cls, n_total_epoch=args.epochs,
+                batch_size=args.batch_size, now=now, cad_file='obj', kps_extractor='ORB')
 bs_utils = Basic_Utils(config)
 writer = SummaryWriter(log_dir=config.log_traininfo_dir)
 
-rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-resource.setrlimit(resource.RLIMIT_NOFILE, (30000, rlimit[1]))
 
 color_lst = [(0, 0, 0)]
 for i in range(config.n_objects):
@@ -121,10 +131,8 @@ for i in range(config.n_objects):
     color = (col_mul//(255*255), (col_mul//255) % 255, col_mul % 255)
     color_lst.append(color)
 
-
-lr_clip = 1e-5
-bnm_clip = 1e-2
-
+rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (30000, rlimit[1]))
 
 def worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
@@ -195,7 +203,7 @@ def load_checkpoint(model=None, optimizer=None, filename="checkpoint"):
         return None
 
 
-def view_labels(rgb_chw, cld_cn, labels, K=config.intrinsic_matrix['linemod']):
+def view_labels(rgb_chw, cld_cn, labels, K=config.intrinsic_matrix['neuromeka']):
     rgb_hwc = np.transpose(rgb_chw[0].numpy(), (1, 2, 0)).astype("uint8").copy()
     cld_nc = np.transpose(cld_cn.numpy(), (1, 0)).copy()
     p2ds = bs_utils.project_p3d(cld_nc, 1.0, K).astype(np.int32)
@@ -203,11 +211,13 @@ def view_labels(rgb_chw, cld_cn, labels, K=config.intrinsic_matrix['linemod']):
     colors = []
     h, w = rgb_hwc.shape[0], rgb_hwc.shape[1]
     rgb_hwc = np.zeros((h, w, 3), "uint8")
-    for lb in labels:
+    # for lb in labels:
+    for lb in labels.sum(0):
         if int(lb) == 0:
             c = (0, 0, 0)
         else:
-            c = color_lst[int(lb)]
+            # c = color_lst[int(lb)]
+            c = color_lst[int(lb)-1]
         colors.append(c)
     show = bs_utils.draw_p2ds(rgb_hwc, p2ds, 3, colors)
     return show
@@ -269,9 +279,12 @@ def model_fn_decorator(
                     data['rgb'], data['cld_rgb_nrm'][0, :3, :],
                     cu_dt['labels'].squeeze()
                 )
-                imshow("pred_lb", show_lb)
-                imshow('gt_lb', show_gt_lb)
-                waitKey(0)
+                # imshow("pred_lb", show_lb)
+                # imshow('gt_lb', show_gt_lb)
+                # waitKey(0)
+                import matplotlib.pyplot as plt
+                plt.imshow(show_lb)
+                plt.imshow(show_gt_lb)
 
             loss_dict = {
                 'loss_rgbd_seg': loss_rgbd_seg.item(),
@@ -288,8 +301,13 @@ def model_fn_decorator(
 
             if not is_eval:
                 if args.local_rank == 0:
-                    writer.add_scalars('loss', loss_dict, it)
+                    writer.add_scalars('train_loss', loss_dict, it)
                     writer.add_scalars('train_acc', acc_dict, it)
+                try:
+                    wandb.log(info_dict)
+                except:
+                    pass
+
             if is_test and test_pose:
                 cld = cu_dt['cld_rgb_nrm'][:, :3, :].permute(0, 2, 1).contiguous()
 
@@ -300,7 +318,7 @@ def model_fn_decorator(
                         cu_dt['ctr_targ_ofst'], labels, epoch, cu_dt['cls_ids'],
                         cu_dt['RTs'], end_points['pred_kp_ofs'],
                         cu_dt['kp_3ds'], cu_dt['ctr_3ds'],
-                        ds='linemod', obj_id=config.cls_id,
+                        ds='neuromeka', obj_id=config.cls_id,
                         min_cnt=1, use_ctr_clus_flter=True, use_ctr=True,
                     )
                 else:
@@ -312,7 +330,7 @@ def model_fn_decorator(
                         cu_dt['ctr_targ_ofst'], labels, epoch, cu_dt['cls_ids'],
                         cu_dt['RTs'], gt_kp_ofs,
                         cu_dt['kp_3ds'], cu_dt['ctr_3ds'],
-                        ds='linemod', obj_id=config.cls_id,
+                        ds='neuromeka', obj_id=config.cls_id,
                         min_cnt=1, use_ctr_clus_flter=True, use_ctr=True
                     )
 
@@ -415,7 +433,20 @@ class Trainer(object):
                 for k, v in acc_dict.items():
                     print(k, v, file=of)
         if args.local_rank == 0:
-            writer.add_scalars('val_acc', acc_dict, it)
+            # writer.add_scalars('val_acc', acc_dict, it)
+            writer.add_scalars('val_acc', {'val_acc':mean_eval_dict['acc_rgbd']}, it)
+
+            try:
+                wandb.log('val_total_loss', total_loss)
+                wandb.log('val_loss_rgbd_seg', mean_eval_dict['loss_rgbd_seg'])
+                wandb.log('val_loss_kp_of', mean_eval_dict['loss_kp_of'])
+                wandb.log('val_loss_ctr_of', mean_eval_dict['loss_ctr_of'])
+                wandb.log('val_loss_all', mean_eval_dict['loss_all'])
+                wandb.log('val_loss_target', mean_eval_dict['loss_target'])
+                wandb.log('val_acc_rgbd', mean_eval_dict['acc_rgbd'])
+            except:
+                pass
+
 
         return total_loss / count, eval_dict
 
@@ -465,6 +496,7 @@ class Trainer(object):
         it = start_it
         _, eval_frequency = is_to_eval(0, it)
 
+
         with tqdm.tqdm(range(config.n_total_epoch), desc="%s_epochs" % args.cls) as tbar, tqdm.tqdm(
             total=eval_frequency, leave=False, desc="train"
         ) as pbar:
@@ -508,13 +540,15 @@ class Trainer(object):
                     if self.viz is not None:
                         self.viz.update("train", it, res)
 
-                    eval_flag, eval_frequency = is_to_eval(epoch, it)
-                    if eval_flag:
+                    # eval_flag, eval_frequency = is_to_eval(epoch, it)
+                    # TODO : eval frequency
+                    if it % 1 == 0:
                         pbar.close()
 
                         if test_loader is not None:
                             val_loss, res = self.eval_epoch(test_loader, it=it)
                             print("val_loss", val_loss)
+                            # wandb.log({'val_loss': val_loss})
 
                             is_best = val_loss < best_loss
                             best_loss = min(best_loss, val_loss)
@@ -549,6 +583,9 @@ class Trainer(object):
 
 
 def train():
+    project = f"neuromeka-{args.cls}"
+    wandb.init(project=project, name=now)
+
     print("local_rank:", args.local_rank)
     cudnn.benchmark = True
     if args.deterministic:
@@ -557,6 +594,7 @@ def train():
         torch.manual_seed(args.local_rank)
         torch.set_printoptions(precision=10)
     torch.cuda.set_device(args.local_rank)
+
     if args.gpus > 1 or args.gpus == -1:
         torch.distributed.init_process_group(
             backend='nccl',
@@ -564,36 +602,37 @@ def train():
         )
     torch.manual_seed(0)
 
+
     if not args.eval_net:
-        train_ds = dataset_desc.Dataset('train', cls_type=args.cls)
+        train_ds = dataset_desc.Dataset('train', cls_type=args.cls, trancolor_rate=0.2)
         val_ds = dataset_desc.Dataset('test', cls_type=args.cls)
         if args.gpus > 1 or args.gpus == -1:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds)
             val_sampler = torch.utils.data.distributed.DistributedSampler(val_ds)
             train_loader = torch.utils.data.DataLoader(
                 train_ds, batch_size=config.mini_batch_size, shuffle=False,
-                drop_last=True, num_workers=4, pin_memory=True,
+                drop_last=True, num_workers=args.num_workers, pin_memory=True,
                 sampler=train_sampler
             )
             val_loader = torch.utils.data.DataLoader(
                 val_ds, batch_size=config.val_mini_batch_size, shuffle=False,
-                drop_last=False, num_workers=4,
+                drop_last=False, num_workers=args.num_workers,
                 sampler=val_sampler
             )
         else:
             train_loader = torch.utils.data.DataLoader(
-                train_ds, batch_size=config.mini_batch_size, shuffle=False,
-                drop_last=True, num_workers=4, pin_memory=True
+                train_ds, batch_size=int(args.batch_size), shuffle=False,
+                drop_last=True, num_workers=args.num_workers, pin_memory=True
             )
             val_loader = torch.utils.data.DataLoader(
-                val_ds, batch_size=config.mini_batch_size, shuffle=False,
-                drop_last=False, num_workers=4
+                val_ds, batch_size=int(args.batch_size), shuffle=False,
+                drop_last=False, num_workers=args.num_workers
             )
     else:
         test_ds = dataset_desc.Dataset('test', cls_type=args.cls)
         test_loader = torch.utils.data.DataLoader(
-            test_ds, batch_size=config.test_mini_batch_size, shuffle=False,
-            num_workers=10
+            test_ds, batch_size=int(args.batch_size), shuffle=False,
+            num_workers=args.num_workers
         )
 
     rndla_cfg = ConfigRandLA
@@ -601,7 +640,8 @@ def train():
         n_classes=config.n_objects, n_pts=config.n_sample_points, rndla_cfg=rndla_cfg,
         n_kps=config.n_keypoints
     )
-    model = convert_syncbn_model(model)
+    # model = convert_syncbn_model(model)
+    # model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     device = torch.device('cuda:{}'.format(args.local_rank))
     print('local_rank:', args.local_rank)
     model.to(device)
@@ -613,10 +653,15 @@ def train():
         model, optimizer, opt_level=opt_level,
     )
 
+
+    lr_clip = 1e-5
+    bnm_clip = 1e-2
+
     # default value
     it = -1  # for the initialize value of `LambdaLR` and `BNMomentumScheduler`
     best_loss = 1e10
     start_epoch = 1
+
 
     # load status from checkpoint
     if args.checkpoint is not None:
@@ -634,11 +679,10 @@ def train():
             assert checkpoint_status is not None, "Failed loadding model."
 
     if not args.eval_net:
-        if args.gpus > 1 or args.gpus == -1:
-            model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[args.local_rank], output_device=args.local_rank,
-                find_unused_parameters=True
-            )
+        # model = torch.nn.parallel.DistributedDataParallel(
+        #     model, device_ids=[args.local_rank], output_device=args.local_rank,
+        #     find_unused_parameters=True
+        # )
         clr_div = 2
         lr_scheduler = CyclicLR(
             optimizer, base_lr=1e-5, max_lr=1e-3,
@@ -651,8 +695,8 @@ def train():
         lr_scheduler = None
 
     bnm_lmbd = lambda it: max(
-        args.bn_momentum
-        * args.bn_decay ** (int(it * config.mini_batch_size / args.decay_step)),
+        float(args.bn_momentum)
+        * float(args.bn_decay) ** (int(it * int(args.batch_size) / float(args.decay_step))),
         bnm_clip,
     )
     bnm_scheduler = pt_utils.BNMomentumScheduler(
@@ -673,6 +717,9 @@ def train():
         )
 
     checkpoint_fd = config.log_model_dir
+
+    # TODO : wandb
+    wandb.watch(models=model, criterion=optimizer, log="all", log_freq=2000, log_graph=False)
 
     trainer = Trainer(
         model,

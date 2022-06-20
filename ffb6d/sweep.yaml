@@ -1,0 +1,22 @@
+program: train_wandb.py
+method: bayes
+metric:
+  name: val_total_loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.05, 0.01, 0.005, 0.001]
+  trancolor_rate:
+    values: [0.15, 0.2, 0.25, 0.3]
+  cad_file:
+    values: ['obj', 'ply']
+  kps_extractor:
+    values: ['SIFT', 'ORB']
+  dropout_rate:
+    values: [0.2, 0.3, 0.4, 0.5]
+
+early_terminate:
+  type: hyperband
+  s: 2
+  eta: 3
+  max_iter: 20

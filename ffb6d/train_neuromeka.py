@@ -39,8 +39,6 @@ from apex.parallel import convert_syncbn_model
 from apex import amp
 from apex.multi_tensor_apply import multi_tensor_applier
 
-import wandb
-
 
 parser = argparse.ArgumentParser(description="Arg parser")
 parser.add_argument(
@@ -104,8 +102,9 @@ parser.add_argument('-nr', '--nr', default=0, type=int,
                     help='ranking within the nodes')
 parser.add_argument('--epochs', default=10, type=int,
                     metavar='N', help='number of total epochs to run')
-parser.add_argument('--num_workers', default=10, type=int,
+parser.add_argument('--num_workers', default=8, type=int,
                     metavar='N')
+parser.add_argument('--batch_size', type=str, default="4")
 parser.add_argument('--gpu', type=str, default="0")
 parser.add_argument('--deterministic', action='store_true')
 parser.add_argument('--keep_batchnorm_fp32', default=True)
@@ -113,15 +112,16 @@ parser.add_argument('--opt_level', default="O0", type=str,
                     help='opt level of apex mix presision trainig.')
 args = parser.parse_args()
 
-os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 from datetime import datetime
 now = datetime.now().strftime('%Y-%m-%d-%Hh-%Mm-%Ss')
-config = Config(ds_name='neuromeka', cls_type=args.cls, now=now)
+
+os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+
+config = Config(ds_name='neuromeka', cls_type=args.cls, n_total_epoch=args.epochs,
+                batch_size=args.batch_size, now=now, cad_file='obj', kps_extractor='ORB')
 bs_utils = Basic_Utils(config)
 writer = SummaryWriter(log_dir=config.log_traininfo_dir)
 
-rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-resource.setrlimit(resource.RLIMIT_NOFILE, (30000, rlimit[1]))
 
 color_lst = [(0, 0, 0)]
 for i in range(config.n_objects):
@@ -129,10 +129,8 @@ for i in range(config.n_objects):
     color = (col_mul//(255*255), (col_mul//255) % 255, col_mul % 255)
     color_lst.append(color)
 
-
-lr_clip = 1e-5
-bnm_clip = 1e-2
-
+rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (30000, rlimit[1]))
 
 def worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
@@ -303,21 +301,6 @@ def model_fn_decorator(
                 if args.local_rank == 0:
                     writer.add_scalars('train_loss', loss_dict, it)
                     writer.add_scalars('train_acc', acc_dict, it)
-                try:
-                    wandb.log(info_dict)
-                except:
-                    pass
-            elif is_eval:
-                wandb.log(
-                    {
-                        'val_loss_rgbd_seg': loss_rgbd_seg.item(),
-                        'val_loss_kp_of': loss_kp_of.item(),
-                        'val_loss_ctr_of': loss_ctr_of.item(),
-                        'val_loss_all': loss.item(),
-                        'val_loss_target': loss.item(),
-                        'val_acc_rgbd': acc_rgbd.item(),
-                    }
-                )
 
             if is_test and test_pose:
                 cld = cu_dt['cld_rgb_nrm'][:, :3, :].permute(0, 2, 1).contiguous()
@@ -444,19 +427,8 @@ class Trainer(object):
                 for k, v in acc_dict.items():
                     print(k, v, file=of)
         if args.local_rank == 0:
-            writer.add_scalars('val_acc', acc_dict, it)
-
-            try:
-                wandb.log('val_total_loss', total_loss)
-                wandb.log('val_loss_rgbd_seg', mean_eval_dict['loss_rgbd_seg'])
-                wandb.log('val_loss_kp_of', mean_eval_dict['loss_kp_of'])
-                wandb.log('val_loss_ctr_of', mean_eval_dict['loss_ctr_of'])
-                wandb.log('val_loss_all', mean_eval_dict['loss_all'])
-                wandb.log('val_loss_target', mean_eval_dict['loss_target'])
-                wandb.log('val_acc_rgbd', mean_eval_dict['acc_rgbd'])
-            except:
-                pass
-
+            # writer.add_scalars('val_acc', acc_dict, it)
+            writer.add_scalars('val_acc', {'val_acc':mean_eval_dict['acc_rgbd']}, it)
 
         return total_loss / count, eval_dict
 
@@ -552,13 +524,12 @@ class Trainer(object):
 
                     # eval_flag, eval_frequency = is_to_eval(epoch, it)
                     # TODO : eval frequency
-                    if it % 370 == 0:
+                    if it % 1 == 0:
                         pbar.close()
 
                         if test_loader is not None:
                             val_loss, res = self.eval_epoch(test_loader, it=it)
                             print("val_loss", val_loss)
-                            # wandb.log({'val_loss': val_loss})
 
                             is_best = val_loss < best_loss
                             best_loss = min(best_loss, val_loss)
@@ -601,33 +572,44 @@ def train():
         torch.manual_seed(args.local_rank)
         torch.set_printoptions(precision=10)
     torch.cuda.set_device(args.local_rank)
-    # torch.distributed.init_process_group(
-    #     backend='nccl',
-    #     init_method='env://',
-    # )
+
+    if args.gpus > 1 or args.gpus == -1:
+        torch.distributed.init_process_group(
+            backend='nccl',
+            init_method='env://',
+        )
     torch.manual_seed(0)
 
-    # TODO : wandb
-    wandb.init(project="neuromeka-bottle", name=now)
 
     if not args.eval_net:
-        train_ds = dataset_desc.Dataset('train', cls_type=args.cls)
-        # train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds)
-        train_loader = torch.utils.data.DataLoader(
-            train_ds, batch_size=config.mini_batch_size, shuffle=False,
-            drop_last=True, num_workers=args.num_workers, pin_memory=True
-        )
-
+        train_ds = dataset_desc.Dataset('train', cls_type=args.cls, trancolor_rate=0.2)
         val_ds = dataset_desc.Dataset('test', cls_type=args.cls)
-        # val_sampler = torch.utils.data.distributed.DistributedSampler(val_ds)
-        val_loader = torch.utils.data.DataLoader(
-            val_ds, batch_size=config.val_mini_batch_size, shuffle=False,
-            drop_last=False, num_workers=args.num_workers
-        )
+        if args.gpus > 1 or args.gpus == -1:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds)
+            val_sampler = torch.utils.data.distributed.DistributedSampler(val_ds)
+            train_loader = torch.utils.data.DataLoader(
+                train_ds, batch_size=config.mini_batch_size, shuffle=False,
+                drop_last=True, num_workers=args.num_workers, pin_memory=True,
+                sampler=train_sampler
+            )
+            val_loader = torch.utils.data.DataLoader(
+                val_ds, batch_size=config.val_mini_batch_size, shuffle=False,
+                drop_last=False, num_workers=args.num_workers,
+                sampler=val_sampler
+            )
+        else:
+            train_loader = torch.utils.data.DataLoader(
+                train_ds, batch_size=int(args.batch_size), shuffle=False,
+                drop_last=True, num_workers=args.num_workers, pin_memory=True
+            )
+            val_loader = torch.utils.data.DataLoader(
+                val_ds, batch_size=int(args.batch_size), shuffle=False,
+                drop_last=False, num_workers=args.num_workers
+            )
     else:
         test_ds = dataset_desc.Dataset('test', cls_type=args.cls)
         test_loader = torch.utils.data.DataLoader(
-            test_ds, batch_size=config.test_mini_batch_size, shuffle=False,
+            test_ds, batch_size=int(args.batch_size), shuffle=False,
             num_workers=args.num_workers
         )
 
@@ -649,10 +631,15 @@ def train():
         model, optimizer, opt_level=opt_level,
     )
 
+
+    lr_clip = 1e-5
+    bnm_clip = 1e-2
+
     # default value
     it = -1  # for the initialize value of `LambdaLR` and `BNMomentumScheduler`
     best_loss = 1e10
     start_epoch = 1
+
 
     # load status from checkpoint
     if args.checkpoint is not None:
@@ -686,8 +673,8 @@ def train():
         lr_scheduler = None
 
     bnm_lmbd = lambda it: max(
-        args.bn_momentum
-        * args.bn_decay ** (int(it * config.mini_batch_size / args.decay_step)),
+        float(args.bn_momentum)
+        * float(args.bn_decay) ** (int(it * int(args.batch_size) / float(args.decay_step))),
         bnm_clip,
     )
     bnm_scheduler = pt_utils.BNMomentumScheduler(
@@ -708,9 +695,6 @@ def train():
         )
 
     checkpoint_fd = config.log_model_dir
-
-    # TODO : wandb
-    wandb.watch(models=model, criterion=optimizer, log="gradients", log_graph=False)
 
     trainer = Trainer(
         model,

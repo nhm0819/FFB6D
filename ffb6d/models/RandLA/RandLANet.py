@@ -9,9 +9,10 @@ from sklearn.metrics import confusion_matrix
 
 class Network(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config, dropout_rate=0.5):
         super().__init__()
         self.config = config
+        self.dropout_rate = dropout_rate
 
         self.fc0 = pt_utils.Conv1d(config.in_c, 8, kernel_size=1, bn=True)
 
@@ -37,7 +38,7 @@ class Network(nn.Module):
 
         self.fc1 = pt_utils.Conv2d(d_out, 64, kernel_size=(1,1), bn=True)
         self.fc2 = pt_utils.Conv2d(64, 32, kernel_size=(1,1), bn=True)
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(self.dropout_rate)
         self.fc3 = pt_utils.Conv2d(32, self.config.num_classes, kernel_size=(1,1), bn=False, activation=None)
 
     def forward(self, end_points):

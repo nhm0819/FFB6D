@@ -550,7 +550,18 @@ class Basic_Utils():
             pointxyz = np.loadtxt(ptxyz_ptn.format(cls), dtype=np.float32)
             self.ycb_cls_ptsxyz_dict[cls] = pointxyz
             return pointxyz
-        # elif ds_type == "neuromeka":
+        elif ds_type == "neuromeka":
+            cls = self.get_cls_name(cls, ds_type)
+            ptxyz_pth = os.path.join(
+                'datasets/neuromeka/models',
+                f'{cls}_obj_res.ply'            # obj or ply
+            )
+            pointxyz = self.ply_vtx(ptxyz_pth) / 50000.0  # 50000.0
+            dellist = [j for j in range(0, len(pointxyz))]
+            dellist = random.sample(dellist, len(pointxyz) - 2000)
+            pointxyz = np.delete(pointxyz, dellist, axis=0)
+            self.neuromeka_cls_ptsxyz_dict[cls] = pointxyz
+            return pointxyz
 
         else:
             ptxyz_pth = os.path.join(

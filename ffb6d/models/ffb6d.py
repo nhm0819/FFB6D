@@ -15,7 +15,7 @@ psp_models = {
 
 class FFB6D(nn.Module):
     def __init__(
-        self, n_classes, n_pts, rndla_cfg, n_kps=8
+        self, n_classes, n_pts, rndla_cfg, n_kps=8, dropout_rate=0.5
     ):
         super().__init__()
 
@@ -25,7 +25,7 @@ class FFB6D(nn.Module):
         self.n_kps = n_kps
         cnn = psp_models['resnet34'.lower()]()
 
-        rndla = RandLANet(rndla_cfg)
+        rndla = RandLANet(rndla_cfg, dropout_rate=dropout_rate)
 
         self.cnn_pre_stages = nn.Sequential(
             cnn.feats.conv1,  # stride = 2, [bs, c, 240, 320]
