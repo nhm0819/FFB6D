@@ -105,7 +105,7 @@ parser.add_argument('--epochs', default=7, type=int,
                     metavar='N', help='number of total epochs to run')
 parser.add_argument('--eval_freq', default=0.25, type=float,
                     metavar='N', help='number of total epochs to run')
-parser.add_argument('--num_workers', default=16, type=int,
+parser.add_argument('--num_workers', default=4, type=int,
                     metavar='N')
 parser.add_argument('--batch_size', type=str, default="4")
 parser.add_argument('--gpu', type=str, default="0")

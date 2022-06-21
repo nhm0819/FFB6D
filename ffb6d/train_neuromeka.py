@@ -79,8 +79,9 @@ parser.add_argument(
     "-eval_net", action='store_true', help="whether is to eval net."
 )
 parser.add_argument(
-    '--cls', type=str, default="car",
-    help="Target object. (bottle, car, doorstop)"
+    '--cls', type=str, default="bottle",
+    help="Target object. (ape, benchvise, cam, can, cat, driller," +
+    "duck, eggbox, glue, holepuncher, iron, lamp, phone)"
 )
 parser.add_argument(
     '--test_occ', action="store_true", help="To eval occlusion linemod or not."
@@ -109,6 +110,7 @@ parser.add_argument('--deterministic', action='store_true')
 parser.add_argument('--keep_batchnorm_fp32', default=True)
 parser.add_argument('--opt_level', default="O0", type=str,
                     help='opt level of apex mix presision trainig.')
+parser.add_argument('--eval_freq', default=0.25, type=float)
 args = parser.parse_args()
 
 from datetime import datetime
@@ -443,6 +445,8 @@ class Trainer(object):
         log_epoch_f=None,
         tot_iter=1,
         clr_div=6,
+        eval_frequency=1000,
+        data_num=150,
     ):
         r"""
            Call to begin training the model
@@ -475,7 +479,7 @@ class Trainer(object):
             return to_eval, eval_frequency
 
         it = start_it
-        _, eval_frequency = is_to_eval(0, it)
+        # _, eval_frequency = is_to_eval(0, it)
 
 
         with tqdm.tqdm(range(config.n_total_epoch), desc="%s_epochs" % args.cls) as tbar, tqdm.tqdm(
@@ -523,7 +527,7 @@ class Trainer(object):
 
                     # eval_flag, eval_frequency = is_to_eval(epoch, it)
                     # TODO : eval frequency
-                    if it % 1 == 0:
+                    if it % eval_frequency == 0 or it % data_num == 0:
                         pbar.close()
 
                         if test_loader is not None:
@@ -612,12 +616,15 @@ def train():
             num_workers=args.num_workers
         )
 
+    data_num = len(train_ds)
+    eval_frequency = int(data_num * args.eval_freq)
+
     rndla_cfg = ConfigRandLA
     model = FFB6D(
         n_classes=config.n_objects, n_pts=config.n_sample_points, rndla_cfg=rndla_cfg,
         n_kps=config.n_keypoints
     )
-    # model = convert_syncbn_model(model)
+    model = convert_syncbn_model(model)
     # model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     device = torch.device('cuda:{}'.format(args.local_rank))
     print('local_rank:', args.local_rank)
@@ -656,10 +663,10 @@ def train():
             assert checkpoint_status is not None, "Failed loadding model."
 
     if not args.eval_net:
-        # model = torch.nn.parallel.DistributedDataParallel(
-        #     model, device_ids=[args.local_rank], output_device=args.local_rank,
-        #     find_unused_parameters=True
-        # )
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[args.local_rank], output_device=args.local_rank,
+            find_unused_parameters=True
+        )
         clr_div = 2
         lr_scheduler = CyclicLR(
             optimizer, base_lr=1e-5, max_lr=1e-3,
@@ -717,7 +724,7 @@ def train():
             it, start_epoch, config.n_total_epoch, train_loader, None,
             val_loader, best_loss=best_loss,
             tot_iter=config.n_total_epoch * train_ds.minibatch_per_epoch // args.gpus,
-            clr_div=clr_div
+            clr_div=clr_div, eval_frequency=eval_frequency, data_num=data_num
         )
 
         if start_epoch == config.n_total_epoch:

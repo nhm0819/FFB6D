@@ -540,9 +540,9 @@ class Trainer(object):
                     if self.viz is not None:
                         self.viz.update("train", it, res)
 
-                    # eval_flag, eval_frequency = is_to_eval(epoch, it)
+                    eval_flag, eval_frequency = is_to_eval(epoch, it)
                     # TODO : eval frequency
-                    if it % 1 == 0:
+                    if it % eval_frequency == 0:
                         pbar.close()
 
                         if test_loader is not None:
