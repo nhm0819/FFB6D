@@ -5,5 +5,3 @@ __pycache__
 *.obj
 *.pkl
 fps/*.so
-raster_triangle/
-
