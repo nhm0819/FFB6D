@@ -524,7 +524,7 @@ class Trainer(object):
             return to_eval, eval_frequency
 
         it = start_it
-        _, eval_frequency = is_to_eval(0, it)
+        # _, eval_frequency = is_to_eval(0, it)
 
 
         with tqdm.tqdm(range(self.config.n_total_epoch), desc="%s_epochs" % args.cls) as tbar, tqdm.tqdm(
@@ -618,7 +618,8 @@ def train():
     from datetime import datetime
     now = datetime.now().strftime('%Y-%m-%d-%Hh-%Mm-%Ss')
 
-    wandb.init(project=project, name=now)
+    if args.local_rank == 0:
+        wandb.init(project=project, name=now)
 
     config = Config(ds_name='neuromeka', cls_type=args.cls, n_total_epoch=args.epochs,
                     batch_size=args.batch_size, now=now, cad_file=wandb.config.cad_file,
@@ -763,7 +764,8 @@ def train():
     checkpoint_fd = config.log_model_dir
 
     # TODO : wandb
-    wandb.watch(models=model, criterion=optimizer, log="all", log_freq=2000, log_graph=False)
+    if args.local_rank == 0:
+        wandb.watch(models=model, criterion=optimizer, log="all", log_freq=2000, log_graph=False)
 
     trainer = Trainer(
         model,

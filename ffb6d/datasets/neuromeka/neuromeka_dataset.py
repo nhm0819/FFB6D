@@ -27,7 +27,8 @@ from datasets.neuromeka.preprocs import read_objects, read_view, calc_Tco,\
 
 class Dataset():
 
-    def __init__(self, dataset_name, cls_type="bottle", batch_size=0, DEBUG=False, now=''):
+    def __init__(self, dataset_name, cls_type="bottle", batch_size=0, DEBUG=False,
+                 now='', trancolor_rate=0.2):
         self.DEBUG = DEBUG
         self.config = Config(ds_name='neuromeka', cls_type=cls_type, now=now)
         self.bs_utils = Basic_Utils(self.config)
@@ -36,7 +37,7 @@ class Dataset():
         self.xmap = np.array([[j for i in range(640)] for j in range(480)])
         self.ymap = np.array([[i for i in range(640)] for j in range(480)])
 
-        self.trancolor = transforms.ColorJitter(0.2, 0.2, 0.2, 0.05)
+        self.trancolor = transforms.ColorJitter(trancolor_rate, trancolor_rate, trancolor_rate, trancolor_rate/4)
         self.norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.224])
         self.obj_dict = self.config.neuromeka_obj_dict
 
@@ -58,16 +59,11 @@ class Dataset():
             )
             self.real_lst = self.bs_utils.read_lines(real_img_pth)
 
-
-
             rnd_img_ptn = os.path.join(
                 self.root, 'renders/%s/*.pkl' % cls_type
             )
             self.rnd_lst = glob(rnd_img_ptn)
 
-            ###### TODO : delete below line
-            self.rnd_lst = []
-            #############
             print("render data length: ", len(self.rnd_lst))
             if len(self.rnd_lst) == 0:
                 warning = "Warning: "
@@ -80,10 +76,9 @@ class Dataset():
             )
             self.fuse_lst = glob(fuse_img_ptn)
 
-            ###### TODO : delete below line
-            self.fuse_lst = []
-            #############
 
+            self.rnd_lst = self.rnd_lst[:10000]
+            self.fuse_lst = self.fuse_lst[:10000]
 
             print("fused data length: ", len(self.fuse_lst))
             if len(self.fuse_lst) == 0:
@@ -97,8 +92,6 @@ class Dataset():
                 self.minibatch_per_epoch = len(self.all_lst) // self.batch_size
             else:
                 self.minibatch_per_epoch = len(self.all_lst) // self.config.mini_batch_size
-
-            ######
 
         else:
             self.add_noise = False
@@ -239,7 +232,7 @@ class Dataset():
 
         if "pkl" in item_name:
             data = pkl.load(open(item_name, "rb"))
-            dpt_mm = data['depth']
+            dpt_mm = data['depth'] * 50000.0
             rgb = data['rgb']
             labels = data['mask']
             K = data['K']

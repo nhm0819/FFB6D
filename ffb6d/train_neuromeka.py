@@ -79,9 +79,8 @@ parser.add_argument(
     "-eval_net", action='store_true', help="whether is to eval net."
 )
 parser.add_argument(
-    '--cls', type=str, default="bottle",
-    help="Target object. (ape, benchvise, cam, can, cat, driller," +
-    "duck, eggbox, glue, holepuncher, iron, lamp, phone)"
+    '--cls', type=str, default="car",
+    help="Target object. (bottle, car, doorstop)"
 )
 parser.add_argument(
     '--test_occ', action="store_true", help="To eval occlusion linemod or not."
