@@ -529,7 +529,7 @@ class Trainer(object):
             return to_eval, eval_frequency
 
         it = start_it
-        _, eval_frequency = is_to_eval(0, it)
+        # _, eval_frequency = is_to_eval(0, it)
 
 
         with tqdm.tqdm(range(self.config.n_total_epoch), desc="%s_epochs" % args.cls) as tbar, tqdm.tqdm(
@@ -635,8 +635,11 @@ def train():
 
     if os.environ["LOCAL_RANK"]=='0':
         wandb.init()
-    api = wandb.Api()
-    run = api.run(f"{os.environ['WANDB_ENTITY']}/{os.environ['WANDB_PROJECT']}/{os.environ['WANDB_RUN_ID']}")
+        class run:
+            config = wandb.config
+    else:
+        api = wandb.Api()
+        run = api.run(f"{os.environ['WANDB_ENTITY']}/{os.environ['WANDB_PROJECT']}/{os.environ['WANDB_RUN_ID']}")
     print("########################", f"{os.environ['WANDB_ENTITY']}/{os.environ['WANDB_PROJECT']}/{os.environ['WANDB_RUN_ID']}")
     print("##########################", run.config)
     config = Config(ds_name='neuromeka', dataset_dir=args.dataset_dir, cls_type=args.cls,
@@ -684,8 +687,8 @@ def train():
             test_ds, batch_size=args.batch_size, shuffle=False,
             num_workers=args.num_workers
         )
-    data_num = len(train_ds)
-    eval_frequency = int(data_num * args.eval_freq)
+    data_num = len(train_ds) / args.gpus if args.gpus > 0 else len(train_ds)
+    eval_frequency = int(data_num * args.eval_freq) / args.gpus if args.gpus > 0 else int(data_num * args.eval_freq)
 
     rndla_cfg = ConfigRandLA
     model = FFB6D(
