@@ -29,20 +29,23 @@ class ConfigRandLA:
 
 
 class Config:
-    def __init__(self, ds_name='ycb', cls_type='bottle', n_total_epoch=10, batch_size=4, now='',
+    def __init__(self, ds_name='ycb', dataset_dir="/home/nhm/work/FFB6D/ffb6d/datasets", cls_type='', n_total_epoch=10, batch_size=4, now='',
                  cad_file='ply', kps_extractor='ORB'):
         self.dataset_name = ds_name
-        self.dataset_dir = "/mnt/data"
+        # self.dataset_dir = "/mnt/data"
+        self.dataset_dir = dataset_dir
         self.exp_dir = os.path.dirname(__file__)
         self.exp_name = os.path.basename(self.exp_dir)
-        self.resnet_ptr_mdl_p = os.path.abspath(
-            os.path.join(
-                self.exp_dir,
-                'models/cnn/ResNet_pretrained_mdl'
-            )
-        )
+
+        self.resnet_ptr_mdl_p = os.path.join(self.dataset_dir, "pretrained", "cnn")
+
         if not os.path.isfile(os.path.join(self.resnet_ptr_mdl_p, 'resnet34-333f7ec4.pth')):
-            self.resnet_ptr_mdl_p = "/mnt/data/pretrained/cnn"
+            self.resnet_ptr_mdl_p = os.path.abspath(
+                os.path.join(
+                    self.exp_dir,
+                    'models/cnn/ResNet_pretrained_mdl'
+                )
+            )
         ensure_fd(self.resnet_ptr_mdl_p)
 
         if cad_file == 'ply_convert':

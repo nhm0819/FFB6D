@@ -47,10 +47,10 @@ parser.add_argument(
     "-weight_decay", type=float, default=0,
     help="L2 regularization coeff [default: 0.0]",
 )
-parser.add_argument(
-    "-lr", type=float, default=1e-2,
-    help="Initial learning rate [default: 1e-2]"
-)
+# parser.add_argument(
+#     "-lr", type=float, default=1e-2,
+#     help="Initial learning rate [default: 1e-2]"
+# )
 parser.add_argument(
     "-lr_decay", type=float, default=0.5,
     help="Learning rate decay gamma [default: 0.5]",
@@ -71,18 +71,18 @@ parser.add_argument(
     "-checkpoint", type=str, default=None,
     help="Checkpoint to start from"
 )
-# parser.add_argument(
-#     "-epochs", type=int, default=10, help="Number of epochs to train for"
-# )
-# parser.add_argument(
-#     "-num_workers", type=int, default=16, help="Number of epochs to train for"
-# )
 parser.add_argument(
     "-eval_net", action='store_true', help="whether is to eval net."
 )
 parser.add_argument(
-    '--cls', type=str, default="bottle",
+    '--cls', type=str, default="doorstop",
     help="Target object. (bottle, car, doorstop)"
+)
+parser.add_argument(
+    '--dataset', type=str, default="neuromeka"
+)
+parser.add_argument(
+    '--dataset_dir', type=str, default="/mnt/sdd/neuromeka/data"
 )
 parser.add_argument(
     '--test_occ', action="store_true", help="To eval occlusion linemod or not."
@@ -101,16 +101,21 @@ parser.add_argument('-g', '--gpus', default=1, type=int,
                     help='number of gpus per node')
 parser.add_argument('-nr', '--nr', default=0, type=int,
                     help='ranking within the nodes')
-parser.add_argument('--epochs', default=7, type=int,
+parser.add_argument('--epochs', default=5, type=int,
                     metavar='N', help='number of total epochs to run')
 parser.add_argument('--eval_freq', default=0.25, type=float,
                     metavar='N', help='number of total epochs to run')
 parser.add_argument('--num_workers', default=4, type=int,
                     metavar='N')
-parser.add_argument('--batch_size', type=str, default="4")
+parser.add_argument('--batch_size', type=int, default=4)
 parser.add_argument('--gpu', type=str, default="0")
 parser.add_argument('--deterministic', action='store_true')
 parser.add_argument('--keep_batchnorm_fp32', default=True)
+parser.add_argument('--cad_file', type=str, default="obj")
+parser.add_argument('--kps_extractor', type=str, default="SIFT")
+parser.add_argument('--dropout_rate', type=float, default=0.5)
+parser.add_argument('--lr', type=float, default=0.01)
+parser.add_argument('--trancolor_rate', type=float, default=0.2)
 parser.add_argument('--opt_level', default="O0", type=str,
                     help='opt level of apex mix presision trainig.')
 args = parser.parse_args()
@@ -119,7 +124,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
 sweep_configuration = {
     "name": "neuromeka_sweep",
-    "metric": {"name": "val_total_loss", "goal": "minimize"},
+    "metric": {"name": "validation/val_total_loss", "goal": "minimize"},
     "method": "bayes",
     "parameters": {
         "cad_file": {
@@ -146,6 +151,9 @@ sweep_configuration = {
     }
 }
 project = f"neuromeka-{args.cls}"
+os.environ["WANDB_PROJECT"] = project
+if "LOCAL_RANK" not in os.environ:
+    os.environ["LOCAL_RANK"]='0'
 
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (30000, rlimit[1]))
@@ -262,7 +270,7 @@ def model_fn_decorator(
             model.eval()
         with torch.set_grad_enabled(not is_eval):
             cu_dt = {}
-            # device = torch.device('cuda:{}'.format(args.local_rank))
+            # device = torch.device('cuda:{}'.format(int(os.environ["LOCAL_RANK"])))
             for key in data.keys():
                 if data[key].dtype in [np.float32, np.uint8]:
                     cu_dt[key] = torch.from_numpy(data[key].astype(np.float32)).cuda()
@@ -324,7 +332,7 @@ def model_fn_decorator(
             info_dict.update(acc_dict)
 
             if not is_eval:
-                if args.local_rank == 0:
+                if int(os.environ["LOCAL_RANK"]) == 0:
                     writer.add_scalars('train_loss', loss_dict, it)
                     writer.add_scalars('train_acc', acc_dict, it)
                 try:
@@ -460,20 +468,17 @@ class Trainer(object):
             with open(os.path.join(self.config.log_eval_dir, seg_res_fn), 'w') as of:
                 for k, v in acc_dict.items():
                     print(k, v, file=of)
-        if args.local_rank == 0:
+        if int(os.environ["LOCAL_RANK"]) == 0:
             # self.writer.add_scalars('val_acc', acc_dict, it)
             self.writer.add_scalars('val_acc', {'val_acc': mean_eval_dict['acc_rgbd']}, it)
 
-            try:
-                wandb.log('val_total_loss', total_loss)
-                wandb.log('val_loss_rgbd_seg', mean_eval_dict['loss_rgbd_seg'])
-                wandb.log('val_loss_kp_of', mean_eval_dict['loss_kp_of'])
-                wandb.log('val_loss_ctr_of', mean_eval_dict['loss_ctr_of'])
-                wandb.log('val_loss_all', mean_eval_dict['loss_all'])
-                wandb.log('val_loss_target', mean_eval_dict['loss_target'])
-                wandb.log('val_acc_rgbd', mean_eval_dict['acc_rgbd'])
-            except:
-                pass
+            wandb.log({"validation/val_total_loss":total_loss/count})
+            wandb.log({"validation/val_loss_rgbd_seg": mean_eval_dict['loss_rgbd_seg']})
+            wandb.log({"validation/val_loss_kp_of": mean_eval_dict['loss_kp_of']})
+            wandb.log({"validation/val_loss_ctr_of": mean_eval_dict['loss_ctr_of']})
+            wandb.log({"validation/val_loss_all": mean_eval_dict['loss_all']})
+            wandb.log({"validation/val_loss_target": mean_eval_dict['loss_target']})
+            wandb.log({"validation/val_acc_rgbd": mean_eval_dict['acc_rgbd']})
 
 
         return total_loss / count, eval_dict
@@ -524,7 +529,7 @@ class Trainer(object):
             return to_eval, eval_frequency
 
         it = start_it
-        # _, eval_frequency = is_to_eval(0, it)
+        _, eval_frequency = is_to_eval(0, it)
 
 
         with tqdm.tqdm(range(self.config.n_total_epoch), desc="%s_epochs" % args.cls) as tbar, tqdm.tqdm(
@@ -550,7 +555,7 @@ class Trainer(object):
                     with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                     lr = get_lr(self.optimizer)
-                    if args.local_rank == 0:
+                    if int(os.environ["LOCAL_RANK"]) == 0:
                         self.writer.add_scalar('lr/lr', lr, it)
 
                     self.optimizer.step()
@@ -583,7 +588,7 @@ class Trainer(object):
 
                             is_best = val_loss < best_loss
                             best_loss = min(best_loss, val_loss)
-                            if args.local_rank == 0:
+                            if int(os.environ["LOCAL_RANK"]) == 0:
                                 save_checkpoint(
                                     checkpoint_state(
                                         self.model, self.optimizer, val_loss, epoch, it
@@ -607,7 +612,7 @@ class Trainer(object):
                         )
                         pbar.set_postfix(dict(total_it=it))
 
-            if args.local_rank == 0:
+            if int(os.environ["LOCAL_RANK"]) == 0:
                 self.writer.export_scalars_to_json("./all_scalars.json")
                 self.writer.close()
         return best_loss
@@ -618,23 +623,27 @@ def train():
     from datetime import datetime
     now = datetime.now().strftime('%Y-%m-%d-%Hh-%Mm-%Ss')
 
-    if args.local_rank == 0:
-        wandb.init(project=project, name=now)
-
-    config = Config(ds_name='neuromeka', cls_type=args.cls, n_total_epoch=args.epochs,
-                    batch_size=args.batch_size, now=now, cad_file=wandb.config.cad_file,
-                    kps_extractor=wandb.config.kps_extractor)
-    bs_utils = Basic_Utils(config)
-    writer = SummaryWriter(log_dir=config.log_traininfo_dir)
-
-    print("local_rank:", args.local_rank)
+    print("local_rank:", int(os.environ["LOCAL_RANK"]))
     cudnn.benchmark = True
     if args.deterministic:
         cudnn.benchmark = False
         cudnn.deterministic = True
-        torch.manual_seed(args.local_rank)
+        torch.manual_seed(int(os.environ["LOCAL_RANK"]))
         torch.set_printoptions(precision=10)
-    torch.cuda.set_device(args.local_rank)
+
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
+    if os.environ["LOCAL_RANK"]=='0':
+        wandb.init()
+    api = wandb.Api()
+    run = api.run(f"{os.environ['WANDB_ENTITY']}/{os.environ['WANDB_PROJECT']}/{os.environ['WANDB_RUN_ID']}")
+    print("########################", f"{os.environ['WANDB_ENTITY']}/{os.environ['WANDB_PROJECT']}/{os.environ['WANDB_RUN_ID']}")
+    print("##########################", run.config)
+    config = Config(ds_name='neuromeka', dataset_dir=args.dataset_dir, cls_type=args.cls,
+                    n_total_epoch=args.epochs, batch_size=args.batch_size, now=now,
+                    cad_file=run.config["cad_file"], kps_extractor=run.config["kps_extractor"])
+    bs_utils = Basic_Utils(config)
+    writer = SummaryWriter(log_dir=config.log_traininfo_dir)
 
     if args.gpus > 1 or args.gpus == -1:
         torch.distributed.init_process_group(
@@ -645,7 +654,7 @@ def train():
 
 
     if not args.eval_net:
-        train_ds = dataset_desc.Dataset('train', cls_type=args.cls, trancolor_rate=wandb.config.trancolor_rate)
+        train_ds = dataset_desc.Dataset('train', cls_type=args.cls, trancolor_rate=run.config["trancolor_rate"])
         val_ds = dataset_desc.Dataset('test', cls_type=args.cls)
         if args.gpus > 1 or args.gpus == -1:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds)
@@ -681,17 +690,17 @@ def train():
     rndla_cfg = ConfigRandLA
     model = FFB6D(
         n_classes=config.n_objects, n_pts=config.n_sample_points, rndla_cfg=rndla_cfg,
-        n_kps=config.n_keypoints, dropout_rate=wandb.config.dropout_rate
+        n_kps=config.n_keypoints, dropout_rate=run.config["dropout_rate"]
     )
 
     if args.gpus > 1 or args.gpus == -1:
         model = convert_syncbn_model(model)
         # model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    device = torch.device('cuda:{}'.format(args.local_rank))
-    print('local_rank:', args.local_rank)
+    device = torch.device('cuda:{}'.format(int(os.environ["LOCAL_RANK"])))
+    print('local_rank:', int(os.environ["LOCAL_RANK"]))
     model.to(device)
     optimizer = optim.Adam(
-        model.parameters(), lr=wandb.config.lr, weight_decay=args.weight_decay
+        model.parameters(), lr=run.config["lr"], weight_decay=args.weight_decay
     )
     opt_level = args.opt_level
     model, optimizer = amp.initialize(
@@ -725,7 +734,7 @@ def train():
     if not args.eval_net:
         if args.gpus > 1 or args.gpus == -1:
             model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[args.local_rank], output_device=args.local_rank,
+                model, device_ids=[int(os.environ["LOCAL_RANK"])], output_device=int(os.environ["LOCAL_RANK"]),
                 find_unused_parameters=True
             )
         clr_div = 2
@@ -763,9 +772,10 @@ def train():
 
     checkpoint_fd = config.log_model_dir
 
-    # TODO : wandb
-    if args.local_rank == 0:
-        wandb.watch(models=model, criterion=optimizer, log="all", log_freq=2000, log_graph=False)
+    # # TODO : watch
+    # if int(os.environ["LOCAL_RANK"]) == 0:
+    #     wandb.watch(models=model, criterion=optimizer, log="all",
+    #                 log_freq=eval_frequency, log_graph=False)
 
     trainer = Trainer(
         model,
@@ -802,7 +812,7 @@ if __name__ == "__main__":
     # TODO : wandb
 
     args.world_size = args.gpus * args.nodes
-    sweep_id = wandb.sweep(sweep_configuration, project=project)
-    wandb.agent(sweep_id, function=train, count=15)
-
-    # train()
+    # sweep_id = wandb.sweep(sweep_configuration, project=project)
+    # wandb.agent(sweep_id, function=train, count=4)
+    # wandb.require("service")
+    train()

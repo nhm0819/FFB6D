@@ -76,10 +76,6 @@ class Dataset():
             )
             self.fuse_lst = glob(fuse_img_ptn)
 
-
-            self.rnd_lst = self.rnd_lst[:10000]
-            self.fuse_lst = self.fuse_lst[:10000]
-
             print("fused data length: ", len(self.fuse_lst))
             if len(self.fuse_lst) == 0:
                 warning = "Warning: "
