@@ -78,10 +78,9 @@ parser.add_argument(
 parser.add_argument(
     "-eval_net", action='store_true', help="whether is to eval net."
 )
+parser.add_argument('--cls', type=str, default="bottle")
 parser.add_argument(
-    '--cls', type=str, default="bottle",
-    help="Target object. (ape, benchvise, cam, can, cat, driller," +
-    "duck, eggbox, glue, holepuncher, iron, lamp, phone)"
+    '--dataset_dir', type=str, default="/mnt/data"
 )
 parser.add_argument(
     '--test_occ', action="store_true", help="To eval occlusion linemod or not."
@@ -104,7 +103,7 @@ parser.add_argument('--epochs', default=10, type=int,
                     metavar='N', help='number of total epochs to run')
 parser.add_argument('--num_workers', default=8, type=int,
                     metavar='N')
-parser.add_argument('--batch_size', type=str, default="4")
+parser.add_argument('--batch_size', type=int, default=4)
 parser.add_argument('--gpu', type=str, default="0")
 parser.add_argument('--deterministic', action='store_true')
 parser.add_argument('--keep_batchnorm_fp32', default=True)
@@ -118,10 +117,13 @@ now = datetime.now().strftime('%Y-%m-%d-%Hh-%Mm-%Ss')
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
-config = Config(ds_name='neuromeka', cls_type=args.cls, n_total_epoch=args.epochs,
+config = Config(ds_name='neuromeka', dataset_dir=args.dataset_dir, cls_type=args.cls, n_total_epoch=args.epochs,
                 batch_size=args.batch_size, now=now, cad_file='obj', kps_extractor='ORB')
 bs_utils = Basic_Utils(config)
 writer = SummaryWriter(log_dir=config.log_traininfo_dir)
+
+if "LOCAL_RANK" not in os.environ:
+    os.environ["LOCAL_RANK"]='0'
 
 
 color_lst = [(0, 0, 0)]
@@ -238,7 +240,7 @@ def model_fn_decorator(
             model.eval()
         with torch.set_grad_enabled(not is_eval):
             cu_dt = {}
-            # device = torch.device('cuda:{}'.format(args.local_rank))
+            # device = torch.device('cuda:{}'.format(int(os.environ["LOCAL_RANK"])))
             for key in data.keys():
                 if data[key].dtype in [np.float32, np.uint8]:
                     cu_dt[key] = torch.from_numpy(data[key].astype(np.float32)).cuda()
@@ -299,7 +301,7 @@ def model_fn_decorator(
             info_dict.update(acc_dict)
 
             if not is_eval:
-                if args.local_rank == 0:
+                if int(os.environ["LOCAL_RANK"]) == 0:
                     writer.add_scalars('train_loss', loss_dict, it)
                     writer.add_scalars('train_acc', acc_dict, it)
 
@@ -427,7 +429,7 @@ class Trainer(object):
             with open(os.path.join(config.log_eval_dir, seg_res_fn), 'w') as of:
                 for k, v in acc_dict.items():
                     print(k, v, file=of)
-        if args.local_rank == 0:
+        if int(os.environ["LOCAL_RANK"]) == 0:
             # writer.add_scalars('val_acc', acc_dict, it)
             writer.add_scalars('val_acc', {'val_acc':mean_eval_dict['acc_rgbd']}, it)
 
@@ -505,7 +507,7 @@ class Trainer(object):
                     with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                     lr = get_lr(self.optimizer)
-                    if args.local_rank == 0:
+                    if int(os.environ["LOCAL_RANK"]) == 0:
                         writer.add_scalar('lr/lr', lr, it)
 
                     self.optimizer.step()
@@ -536,7 +538,7 @@ class Trainer(object):
 
                             is_best = val_loss < best_loss
                             best_loss = min(best_loss, val_loss)
-                            if args.local_rank == 0:
+                            if int(os.environ["LOCAL_RANK"]) == 0:
                                 save_checkpoint(
                                     checkpoint_state(
                                         self.model, self.optimizer, val_loss, epoch, it
@@ -560,21 +562,22 @@ class Trainer(object):
                         )
                         pbar.set_postfix(dict(total_it=it))
 
-            if args.local_rank == 0:
+            if int(os.environ["LOCAL_RANK"]) == 0:
                 writer.export_scalars_to_json("./all_scalars.json")
                 writer.close()
         return best_loss
 
 
 def train():
-    print("local_rank:", args.local_rank)
+    print("local_rank:", int(os.environ["LOCAL_RANK"]))
     cudnn.benchmark = True
     if args.deterministic:
         cudnn.benchmark = False
         cudnn.deterministic = True
-        torch.manual_seed(args.local_rank)
+        torch.manual_seed(int(os.environ["LOCAL_RANK"]))
         torch.set_printoptions(precision=10)
-    torch.cuda.set_device(args.local_rank)
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+    # torch.cuda.current_device()
 
     if args.gpus > 1 or args.gpus == -1:
         torch.distributed.init_process_group(
@@ -591,12 +594,12 @@ def train():
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds)
             val_sampler = torch.utils.data.distributed.DistributedSampler(val_ds)
             train_loader = torch.utils.data.DataLoader(
-                train_ds, batch_size=config.mini_batch_size, shuffle=False,
+                train_ds, batch_size=int(args.batch_size), shuffle=False,
                 drop_last=True, num_workers=args.num_workers, pin_memory=True,
                 sampler=train_sampler
             )
             val_loader = torch.utils.data.DataLoader(
-                val_ds, batch_size=config.val_mini_batch_size, shuffle=False,
+                val_ds, batch_size=int(args.batch_size), shuffle=False,
                 drop_last=False, num_workers=args.num_workers,
                 sampler=val_sampler
             )
@@ -612,12 +615,12 @@ def train():
     else:
         test_ds = dataset_desc.Dataset('test', cls_type=args.cls)
         test_loader = torch.utils.data.DataLoader(
-            test_ds, batch_size=int(args.batch_size), shuffle=False,
+            test_ds, batch_size=args.batch_size, shuffle=False,
             num_workers=args.num_workers
         )
 
-    data_num = len(train_ds)
-    eval_frequency = int(data_num * args.eval_freq)
+    data_num = len(train_ds) / args.gpus if args.gpus > 0 else len(train_ds)
+    eval_frequency = int(data_num * args.eval_freq) / args.gpus if args.gpus > 0 else int(data_num * args.eval_freq)
 
     rndla_cfg = ConfigRandLA
     model = FFB6D(
@@ -626,8 +629,8 @@ def train():
     )
     model = convert_syncbn_model(model)
     # model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    device = torch.device('cuda:{}'.format(args.local_rank))
-    print('local_rank:', args.local_rank)
+    device = torch.device('cuda:{}'.format(int(os.environ["LOCAL_RANK"])))
+    print('local_rank:', int(os.environ["LOCAL_RANK"]))
     model.to(device)
     optimizer = optim.Adam(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
@@ -664,7 +667,7 @@ def train():
 
     if not args.eval_net:
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.local_rank], output_device=args.local_rank,
+            model, device_ids=[int(os.environ["LOCAL_RANK"])], output_device=int(os.environ["LOCAL_RANK"]),
             find_unused_parameters=True
         )
         clr_div = 2

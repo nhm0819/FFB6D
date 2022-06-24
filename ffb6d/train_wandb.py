@@ -687,8 +687,8 @@ def train():
             test_ds, batch_size=args.batch_size, shuffle=False,
             num_workers=args.num_workers
         )
-    data_num = len(train_ds) / args.gpus if args.gpus > 0 else len(train_ds)
-    eval_frequency = int(data_num * args.eval_freq) / args.gpus if args.gpus > 0 else int(data_num * args.eval_freq)
+    data_num = int(len(train_ds) / args.gpus) if args.gpus > 0 else len(train_ds)
+    eval_frequency = int(data_num * args.eval_freq / args.gpus) if args.gpus > 0 else int(data_num * args.eval_freq)
 
     rndla_cfg = ConfigRandLA
     model = FFB6D(
