@@ -28,7 +28,7 @@ from datasets.neuromeka.preprocs import read_objects, read_view, calc_Tco,\
 class Dataset():
 
     def __init__(self, dataset_name, cls_type="bottle", batch_size=0, DEBUG=False,
-                 now='', trancolor_rate=0.2):
+                 now='', trancolor_rate=0.2, num_fuse=10000, num_renders=50000):
         self.DEBUG = DEBUG
         self.config = Config(ds_name='neuromeka', cls_type=cls_type, now=now)
         self.bs_utils = Basic_Utils(self.config)
@@ -62,7 +62,7 @@ class Dataset():
             rnd_img_ptn = os.path.join(
                 self.root, 'renders/%s/*.pkl' % cls_type
             )
-            self.rnd_lst = glob(rnd_img_ptn)
+            self.rnd_lst = glob(rnd_img_ptn)[:num_renders]
 
             print("render data length: ", len(self.rnd_lst))
             if len(self.rnd_lst) == 0:
@@ -74,7 +74,7 @@ class Dataset():
             fuse_img_ptn = os.path.join(
                 self.root, 'fuse/%s/*.pkl' % cls_type
             )
-            self.fuse_lst = glob(fuse_img_ptn)
+            self.fuse_lst = glob(fuse_img_ptn)[:num_fuse]
 
             print("fused data length: ", len(self.fuse_lst))
             if len(self.fuse_lst) == 0:
@@ -254,7 +254,7 @@ class Dataset():
             file_pose = os.path.join(os.path.join(self.cls_root, folder_name, "poses", file_name + ".csv"))
             file_config = os.path.join(os.path.join(self.cls_root, folder_name, "config", file_name + ".csv"))
 
-            obj = read_objects(file_config)[0]
+            obj = read_objects(file_config, cad_file=self.config.cad_file)[0]
             view = read_view(file_pose)
             Tco = np.matmul(self.Tx180, calc_Tco(obj, view))
             RT = Tco[:3]
@@ -492,8 +492,8 @@ def main():
     import matplotlib.pyplot as plt
     # config.mini_batch_size = 1
     ds = {}
-    cls = 'doorstop'
-    ds['train'] = Dataset('train', cls, DEBUG=True)
+    cls = 'car'
+    ds['train'] = Dataset('train', cls, DEBUG=True, num_fuse=0, num_renders=40000)
     ds['test'] = Dataset('test', cls, DEBUG=True)
     idx = dict(
         train=0,
@@ -509,7 +509,7 @@ def main():
             K = datum['K']
             cam_scale = datum['cam_scale']
             rgb = datum['rgb'].transpose(1, 2, 0)[..., ::-1].copy()  # [...,::-1].copy()
-            for i in range(22):
+            for i in range(2):
                 pcld = datum['cld_rgb_nrm'][:3, :].transpose(1, 0).copy()
                 p2ds = ds[cat].bs_utils.project_p3d(pcld, cam_scale, K)
                 # rgb = ds[cat].bs_utils.draw_p2ds(rgb, p2ds)
@@ -525,7 +525,10 @@ def main():
                 rgb = ds[cat].bs_utils.draw_p2ds(
                     rgb, ctr_2ds, 4, (0, 0, 255)
                 )
-            plt.imshow(rgb)
+            plt.imshow(rgb[...,::-1])
+            plt.axis('off')
+            plt.show()
+
             # imshow('{}_rgb'.format(cat), rgb)
             # cmd = waitKey(0)
             # if cmd == ord('q'):

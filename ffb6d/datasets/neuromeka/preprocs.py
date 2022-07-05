@@ -43,7 +43,7 @@ def read_view(filepath):
     return view
 
 
-def read_objects(filepath):
+def read_objects(filepath, cad_file='ply'):
     with open(filepath) as csv_file:
         csv_reader = csv.reader(csv_file, delimiter=',')
         line_count = 0
@@ -56,6 +56,26 @@ def read_objects(filepath):
             obj['eu_zyx_rev'] = np.array([float(row[7]), float(row[8]), float(row[9])])
             obj['eu_zyx'] = np.array([float(row[9]), float(row[8]), float(row[7])])
             objects += [obj]
+
+        # if cad_file == 'ply':
+        #     for row in csv_reader:
+        #         obj = {}
+        #         obj['cls'] = int(row[0])
+        #         obj['scale'] = np.array([float(row[1]), float(row[2]), float(row[3])])
+        #         obj['pos'] = np.array([float(row[4]), -float(row[6]), float(row[5])])
+        #         obj['eu_zyx_rev'] = np.array([float(row[8]), -float(row[7]), float(row[9])])
+        #         obj['eu_zyx'] = np.array([float(row[9]), -float(row[7]), float(row[8])])
+        #         objects += [obj]
+        # else:
+        #     for row in csv_reader:
+        #         obj = {}
+        #         obj['cls'] = int(row[0])
+        #         obj['scale'] = np.array([float(row[1]), float(row[2]), float(row[3])])
+        #         obj['pos'] = np.array([float(row[4]), float(row[5]), float(row[6])])
+        #         obj['eu_zyx_rev'] = np.array([float(row[7]), float(row[8]), float(row[9])])
+        #         obj['eu_zyx'] = np.array([float(row[9]), float(row[8]), float(row[7])])
+        #         objects += [obj]
+
     return objects
 
 

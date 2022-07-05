@@ -270,10 +270,10 @@ def cal_frame_poses_nm(
             # print("kp2d:", kp_2ds, "\n")
             color = (0, 0, 255)  # bs_utils.get_label_color(cls_id.item())
             show_kp_img = bs_utils.draw_p2ds(show_kp_img, kp_2ds, r=3, color=color)
-            imshow("kp: cls_id=%d" % cls_id, show_kp_img)
-            waitKey(0)
+            import matplotlib.pyplot as plt
+            plt.imshow(show_kp_img)
 
-        mesh_kps = bs_utils.get_kps(obj_id, ds_type="neuromeka")
+        mesh_kps = bs_utils.get_kps(obj_id, ds_type=config["neuromeka"])
         if use_ctr:
             mesh_ctr = bs_utils.get_ctr(obj_id, ds_type="neuromeka").reshape(1, 3)
             mesh_kps = np.concatenate((mesh_kps, mesh_ctr), axis=0)
@@ -284,6 +284,41 @@ def cal_frame_poses_nm(
         )
         pred_pose_lst.append(pred_RT)
     return pred_pose_lst
+
+def eval_metric_nm(cls_ids, pred_pose_lst, RTs, mask, label, obj_id):
+    n_cls = config.n_classes
+    cls_add_dis = [list() for i in range(n_cls)]
+    cls_adds_dis = [list() for i in range(n_cls)]
+
+    pred_RT = pred_pose_lst[0]
+    pred_RT = torch.from_numpy(pred_RT.astype(np.float32)).cuda()
+    gt_RT = RTs[0]
+    mesh_pts = bs_utils.get_pointxyz_cuda(obj_id, ds_type="neuromeka").clone()
+    add = bs_utils.cal_add_cuda(pred_RT, gt_RT, mesh_pts)
+    adds = bs_utils.cal_adds_cuda(pred_RT, gt_RT, mesh_pts)
+    # print("obj_id:", obj_id, add, adds)
+    cls_add_dis[obj_id].append(add.item())
+    cls_adds_dis[obj_id].append(adds.item())
+    cls_add_dis[0].append(add.item())
+    cls_adds_dis[0].append(adds.item())
+
+    return (cls_add_dis, cls_adds_dis)
+
+
+def eval_one_frame_pose_nm(
+    item
+):
+    pcld, mask, ctr_of, pred_kp_of, RTs, cls_ids, use_ctr, n_cls, \
+        min_cnt, use_ctr_clus_flter, label, epoch, ibs, obj_id = item
+    pred_pose_lst = cal_frame_poses_nm(
+        pcld, mask, ctr_of, pred_kp_of, use_ctr, n_cls, use_ctr_clus_flter,
+        obj_id
+    )
+
+    cls_add_dis, cls_adds_dis = eval_metric_nm(
+        cls_ids, pred_pose_lst, RTs, mask, label, obj_id
+    )
+    return (cls_add_dis, cls_adds_dis)
 
 # ###############################LineMOD Evaluation###############################
 
@@ -549,6 +584,8 @@ class TorchEval():
         ) as executor:
             if ds == "ycb":
                 eval_func = eval_one_frame_pose
+            elif ds == "neuromeka":
+                eval_func = eval_one_frame_pose_nm
             else:
                 eval_func = eval_one_frame_pose_lm
             for res in executor.map(eval_func, data_gen):

@@ -264,7 +264,7 @@ def model_fn_decorator(
         test_pose=False
     ):
         if finish_test:
-            teval.cal_lm_add(config.cls_id)
+            teval.cal_nm_add(config.cls_id)
             return None
         if is_eval:
             model.eval()

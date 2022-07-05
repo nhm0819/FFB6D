@@ -30,7 +30,7 @@ class ConfigRandLA:
 
 class Config:
     def __init__(self, ds_name='ycb', dataset_dir="/home/nhm/work/FFB6D/ffb6d/datasets", cls_type='', n_total_epoch=10, batch_size=4, now='',
-                 cad_file='ply', kps_extractor='ORB'):
+                 cad_file='ply', kps_extractor='SIFT'):
         self.dataset_name = ds_name
         # self.dataset_dir = "/mnt/data"
         self.dataset_dir = dataset_dir
@@ -112,6 +112,7 @@ class Config:
         elif self.dataset_name == 'neuromeka':
             self.n_objects = 1 + 1
             self.n_classes = self.n_objects
+            self.nm_sym_cls_ids = []
             if self.kps_extractor == "ORB":
                 self.use_orbfps = True
             else:
