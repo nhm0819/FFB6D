@@ -2,6 +2,7 @@
 import os
 import yaml
 import numpy as np
+import glob
 
 
 def ensure_fd(fd):
@@ -30,7 +31,7 @@ class ConfigRandLA:
 
 class Config:
     def __init__(self, ds_name='ycb', dataset_dir="/home/nhm/work/FFB6D/ffb6d/datasets", cls_type='', n_total_epoch=10, batch_size=4, now='',
-                 cad_file='ply', kps_extractor='SIFT'):
+                 cad_file='ply', kps_extractor='SIFT', n_keypoints=50):
         self.dataset_name = ds_name
         # self.dataset_dir = "/mnt/data"
         self.dataset_dir = dataset_dir
@@ -73,7 +74,7 @@ class Config:
         self.test_mini_batch_size = batch_size
 
         self.n_sample_points = 480 * 640 // 24  # Number of input points
-        self.n_keypoints = 8
+        self.n_keypoints = n_keypoints
         self.n_min_points = 400
 
         self.noise_trans = 0.05  # range of the random noise of translation added to the training data
@@ -112,11 +113,12 @@ class Config:
         elif self.dataset_name == 'neuromeka':
             self.n_objects = 1 + 1
             self.n_classes = self.n_objects
+            self.use_orbfps = True
+            # if self.kps_extractor == "ORB":
+            #     self.use_orbfps = True
+            # else:
+            #     self.use_orbfps = False
             self.nm_sym_cls_ids = []
-            if self.kps_extractor == "ORB":
-                self.use_orbfps = True
-            else:
-                self.use_orbfps = False
             self.neuromeka_root = os.path.abspath(
                 os.path.join(
                     self.dataset_dir, 'neuromeka'
@@ -124,6 +126,7 @@ class Config:
             )
             self.kp_orbfps_dir = os.path.join(self.neuromeka_root,
                                               f'{self.cad_file}_{self.kps_extractor.lower()}_fps')
+            self.kp_orbfps_dir = os.path.join(self.neuromeka_root, f'kps_{self.n_keypoints}')
             self.kp_orbfps_ptn = os.path.join(self.kp_orbfps_dir, f'%s_{self.kps_extractor}_fps.txt')
             self.neuromeka_cls_lst_p = os.path.abspath(
                 os.path.join(
@@ -132,12 +135,16 @@ class Config:
             )
 
             self.neuromeka_kps_dir = os.path.abspath(self.kp_orbfps_dir)
-            neuromeka_r_lst_p = os.path.abspath(
-                os.path.join(
-                    self.neuromeka_kps_dir, 'all_radius.txt'
-                )
-            )
-            self.neuromeka_r_lst = list(np.loadtxt(neuromeka_r_lst_p))
+            # neuromeka_r_lst_p = os.path.abspath(
+            #     os.path.join(
+            #         self.neuromeka_kps_dir, 'all_radius.txt'
+            #     )
+            # )
+            # self.neuromeka_r_lst = list(np.loadtxt(neuromeka_r_lst_p))
+            neuromeka_r_lst_p = glob.glob(os.path.join(self.neuromeka_kps_dir, '*_radius.txt'))
+            neuromeka_r_lst_p.sort()
+            self.neuromeka_r_lst = [np.loadtxt(neuromeka_r) for neuromeka_r in neuromeka_r_lst_p]
+
             self.neuromeka_cls_lst = self.read_lines(self.neuromeka_cls_lst_p)
             self.neuromeka_obj_dict = {
                 'bottle': 1,

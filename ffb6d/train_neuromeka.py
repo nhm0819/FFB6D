@@ -104,12 +104,18 @@ parser.add_argument('--epochs', default=10, type=int,
 parser.add_argument('--num_workers', default=8, type=int,
                     metavar='N')
 parser.add_argument('--batch_size', type=int, default=4)
+parser.add_argument('--n_keypoints', type=int, default=50)
 parser.add_argument('--gpu', type=str, default="0")
 parser.add_argument('--deterministic', action='store_true')
 parser.add_argument('--keep_batchnorm_fp32', default=True)
 parser.add_argument('--opt_level', default="O0", type=str,
                     help='opt level of apex mix presision trainig.')
 parser.add_argument('--eval_freq', default=0.25, type=float)
+parser.add_argument('--cad_file', type=str, default="ply")
+parser.add_argument('--kps_extractor', type=str, default="SIFT")
+parser.add_argument('--dropout_rate', type=float, default=0.5)
+parser.add_argument('--lr', type=float, default=0.01)
+parser.add_argument('--trancolor_rate', type=float, default=0.2)
 args = parser.parse_args()
 
 from datetime import datetime
@@ -118,7 +124,7 @@ now = datetime.now().strftime('%Y-%m-%d-%Hh-%Mm-%Ss')
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
 config = Config(ds_name='neuromeka', dataset_dir=args.dataset_dir, cls_type=args.cls, n_total_epoch=args.epochs,
-                batch_size=args.batch_size, now=now, cad_file='obj', kps_extractor='ORB')
+                batch_size=args.batch_size, now=now, cad_file='ply', kps_extractor='SIFT', n_keypoints=args.n_keypoints)
 bs_utils = Basic_Utils(config)
 writer = SummaryWriter(log_dir=config.log_traininfo_dir)
 
@@ -208,7 +214,10 @@ def view_labels(rgb_chw, cld_cn, labels, K=config.intrinsic_matrix['neuromeka'])
     rgb_hwc = np.transpose(rgb_chw[0].numpy(), (1, 2, 0)).astype("uint8").copy()
     cld_nc = np.transpose(cld_cn.numpy(), (1, 0)).copy()
     p2ds = bs_utils.project_p3d(cld_nc, 1.0, K).astype(np.int32)
-    labels = labels.squeeze().contiguous().cpu().numpy()
+    if labels.size()[0] == 1:
+        labels = labels.contiguous().cpu().numpy()
+    else:
+        labels = labels.squeeze().contiguous().cpu().numpy()
     colors = []
     h, w = rgb_hwc.shape[0], rgb_hwc.shape[1]
     rgb_hwc = np.zeros((h, w, 3), "uint8")
@@ -627,7 +636,8 @@ def train():
         n_classes=config.n_objects, n_pts=config.n_sample_points, rndla_cfg=rndla_cfg,
         n_kps=config.n_keypoints
     )
-    model = convert_syncbn_model(model)
+    if args.gpus > 1 or args.gpus == -1:
+        model = convert_syncbn_model(model)
     # model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     device = torch.device('cuda:{}'.format(int(os.environ["LOCAL_RANK"])))
     print('local_rank:', int(os.environ["LOCAL_RANK"]))
@@ -666,10 +676,11 @@ def train():
             assert checkpoint_status is not None, "Failed loadding model."
 
     if not args.eval_net:
-        model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[int(os.environ["LOCAL_RANK"])], output_device=int(os.environ["LOCAL_RANK"]),
-            find_unused_parameters=True
-        )
+        if args.gpus > 1 or args.gpus == -1:
+            model = torch.nn.parallel.DistributedDataParallel(
+                model, device_ids=[int(os.environ["LOCAL_RANK"])], output_device=int(os.environ["LOCAL_RANK"]),
+                find_unused_parameters=True
+            )
         clr_div = 2
         lr_scheduler = CyclicLR(
             optimizer, base_lr=1e-5, max_lr=1e-3,

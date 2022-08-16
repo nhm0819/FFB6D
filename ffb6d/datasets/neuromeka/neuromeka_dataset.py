@@ -89,6 +89,34 @@ class Dataset():
             else:
                 self.minibatch_per_epoch = len(self.all_lst) // self.config.mini_batch_size
 
+        elif dataset_name=="fuse":
+            self.add_noise = False
+            fuse_img_ptn = os.path.join(
+                self.root, 'fuse/%s/*.pkl' % cls_type
+            )
+            self.all_lst = glob(fuse_img_ptn)[:num_fuse]
+
+        elif dataset_name=="render":
+            self.add_noise = False
+            rnd_img_ptn = os.path.join(
+                self.root, 'renders/%s/*.pkl' % cls_type
+            )
+            self.all_lst = glob(rnd_img_ptn)[:num_renders]
+
+        elif dataset_name == 'real':
+            self.add_noise = True
+            real_img_pth = os.path.join(
+                self.cls_root, f"{cls_type}_train_list.txt"
+            )
+            self.real_lst = self.bs_utils.read_lines(real_img_pth)
+
+            self.all_lst = self.real_lst
+            if self.batch_size != 0:
+                self.minibatch_per_epoch = len(self.all_lst) // self.batch_size
+            else:
+                self.minibatch_per_epoch = len(self.all_lst) // self.config.mini_batch_size
+
+
         else:
             self.add_noise = False
             tst_img_pth = os.path.join(self.cls_root, f"{cls_type}_test_list.txt")
@@ -257,9 +285,15 @@ class Dataset():
             obj = read_objects(file_config, cad_file=self.config.cad_file)[0]
             view = read_view(file_pose)
             Tco = np.matmul(self.Tx180, calc_Tco(obj, view))
+            # Tco = calc_Tco(obj, view)
             RT = Tco[:3]
             rnd_typ = 'real'
-            K = self.config.intrinsic_matrix["neuromeka"]
+
+            K = np.concatenate([
+                np.concatenate([np.diag(view['lens_f_px']),
+                                (view['resolution'] / 2 + view['offset_px'])[:, np.newaxis]], axis=1),
+                [[0, 0, 1]]])
+            # K = self.config.intrinsic_matrix["neuromeka"]
 
         DEPTH_SCALE_HQ = 50000.0
         cam_scale = 50000.0
@@ -416,6 +450,7 @@ class Dataset():
             cls_ids=cls_ids.astype(np.int32),
             ctr_3ds=ctr3ds.astype(np.float32),
             kp_3ds=kp3ds.astype(np.float32),
+            K=K.astype(np.float32)
         )
         item_dict.update(inputs)
         if self.DEBUG:
@@ -540,3 +575,17 @@ def main():
 if __name__ == "__main__":
     main()
 # vim: ts=4 sw=4 sts=4 expandtab
+#     import pickle as pkl
+#     import matplotlib.pyplot as plt
+#     item_name = [f"/home/nhm/work/FFB6D/ffb6d/datasets/neuromeka/renders/car/{i}.pkl" for i in range(10000)]
+#     for item in item_name:
+#         data = pkl.load(open(item, "rb"))
+#         dpt_mm = data['depth'] * 50000.0
+#         rgb = data['rgb']
+#         labels = data['mask']
+#         K = data['K']
+#         RT = data['RT']
+#         rnd_typ = data['rnd_typ']
+#         plt.imshow(rgb)
+#         plt.show()
+#         plt.waitforbuttonpress()

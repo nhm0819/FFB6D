@@ -26,30 +26,36 @@ try:
     from neupeak.utils.webcv2 import imshow, waitKey
 except ImportError:
     from cv2 import imshow, waitKey
-
+from train_neuromeka import view_labels
+from datasets.neuromeka.preprocs import draw_axis
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser(description="Arg parser")
 parser.add_argument(
-    "-checkpoint", type=str, default=None, help="Checkpoint to eval"
+    "-checkpoint", type=str, default="/home/nhm/work/FFB6D/ffb6d/datasets/neuromeka/train_log/checkpoints/FFB6D_%s_best.pth.tar", help="Checkpoint to eval"
 )
 parser.add_argument(
-    "-dataset", type=str, default="linemod",
+    "-dataset", type=str, default="neuromeka",
     help="Target dataset, ycb or linemod. (linemod as default)."
 )
 parser.add_argument(
-    "-cls", type=str, default="ape",
-    help="Target object to eval in LineMOD dataset. (ape, benchvise, cam, can," +
-    "cat, driller, duck, eggbox, glue, holepuncher, iron, lamp, phone)"
+    "-cls", type=str, default="doorstop",
+    help="Target object to eval in LineMOD dataset. (bottle, car, doorstop)"
+)
+parser.add_argument(
+    "-n_keypoints", type=int, default=50,
 )
 parser.add_argument(
     "-show", action='store_true', help="View from imshow or not."
 )
 args = parser.parse_args()
+args.checkpoint = args.checkpoint % args.cls
 
 if args.dataset == "ycb":
     config = Config(ds_name=args.dataset)
 elif args.dataset == "neuromeka":
-    config = Config(ds_name=args.dataset, cls_type=args.cls)
+    config = Config(ds_name=args.dataset, cls_type=args.cls, dataset_dir="/home/nhm/work/FFB6D/ffb6d/datasets", now='test',
+                    n_keypoints=args.n_keypoints)
 else:
     config = Config(ds_name=args.dataset, cls_type=args.cls)
 bs_utils = Basic_Utils(config)
@@ -115,7 +121,8 @@ def cal_view_pred_pose(model, data, epoch=0, obj_id=-1):
         elif args.dataset == "neuromeka":
             pred_pose_lst = cal_frame_poses_nm(
                 pcld[0], classes_rgbd[0], end_points['pred_ctr_ofs'][0],
-                end_points['pred_kp_ofs'][0], True, config.n_objects, False, obj_id
+                end_points['pred_kp_ofs'][0], True, config.n_objects, False, obj_id,
+                rgb=cu_dt['rgb'][0], # debug=True
             )
             pred_cls_ids = np.array([[1]])
         else:
@@ -145,8 +152,9 @@ def cal_view_pred_pose(model, data, epoch=0, obj_id=-1):
             else:
                 K = config.intrinsic_matrix["linemod"]
             mesh_p2ds = bs_utils.project_p3d(mesh_pts, 1.0, K)
-            color = bs_utils.get_label_color(obj_id, n_obj=22, mode=2)
+            color = bs_utils.get_label_color(obj_id, n_obj=2, mode=2)
             np_rgb = bs_utils.draw_p2ds(np_rgb, mesh_p2ds, color=color)
+
         vis_dir = os.path.join(config.log_eval_dir, "pose_vis")
         ensure_fd(vis_dir)
         f_pth = os.path.join(vis_dir, "{}.jpg".format(epoch))
@@ -156,7 +164,10 @@ def cal_view_pred_pose(model, data, epoch=0, obj_id=-1):
         else:
             bgr = np_rgb[:, :, ::-1]
             ori_bgr = ori_rgb[:, :, ::-1]
-        cv2.imwrite(f_pth, bgr)
+        # cv2.imwrite(f_pth, bgr)
+        img_axis = draw_axis(bgr, pose, K)
+        img_axis = draw_axis(img_axis, data['RTs'][0][0].numpy(), K, maxval=127)
+        cv2.imwrite(f_pth, img_axis)
         if args.show:
             imshow("projected_pose_rgb", bgr)
             imshow("original_rgb", ori_bgr)
@@ -164,13 +175,31 @@ def cal_view_pred_pose(model, data, epoch=0, obj_id=-1):
     if epoch == 0:
         print("\n\nResults saved in {}".format(vis_dir))
 
+    # _, cls_rgbd = torch.max(end_points['pred_rgbd_segs'], 1)
+    #
+    # show_lb = view_labels(
+    #     data['rgb'], data['cld_rgb_nrm'][0, :3, :], cls_rgbd
+    # )
+    # show_gt_lb = view_labels(
+    #     data['rgb'], data['cld_rgb_nrm'][0, :3, :],
+    #     cu_dt['labels'].squeeze()
+    # )
+    # vis_dir = os.path.join(config.log_eval_dir, "kps_labels")
+    # ensure_fd(vis_dir)
+    # f_pth = os.path.join(vis_dir, "{}.jpg".format(epoch))
+    # cv2.imwrite(f_pth, show_lb)
+    # f_pth = os.path.join(vis_dir, "{}_gt.jpg".format(epoch))
+    # cv2.imwrite(f_pth, show_gt_lb)
+
+
 
 def main():
     if args.dataset == "ycb":
         test_ds = YCB_Dataset('test')
         obj_id = -1
     elif args.dataset == "neuromeka":
-        test_ds = NM_Dataset('test', cls_type=args.cls)
+        # test_ds = NM_Dataset('test', cls_type=args.cls)
+        test_ds = NM_Dataset('real', cls_type=args.cls)
         obj_id = config.neuromeka_obj_dict[args.cls]
     elif args.dataset == "linemod_test":
         test_ds = LM_Dataset_test('test', cls_type=args.cls)

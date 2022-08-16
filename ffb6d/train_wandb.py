@@ -82,7 +82,7 @@ parser.add_argument(
     '--dataset', type=str, default="neuromeka"
 )
 parser.add_argument(
-    '--dataset_dir', type=str, default="/mnt/sdd/neuromeka/data"
+    '--dataset_dir', type=str, default="/mnt/data"
 )
 parser.add_argument(
     '--test_occ', action="store_true", help="To eval occlusion linemod or not."
@@ -108,10 +108,11 @@ parser.add_argument('--eval_freq', default=0.25, type=float,
 parser.add_argument('--num_workers', default=4, type=int,
                     metavar='N')
 parser.add_argument('--batch_size', type=int, default=4)
+parser.add_argument('--n_keypoints', type=int, default=30)
 parser.add_argument('--gpu', type=str, default="0")
 parser.add_argument('--deterministic', action='store_true')
 parser.add_argument('--keep_batchnorm_fp32', default=True)
-parser.add_argument('--cad_file', type=str, default="obj")
+parser.add_argument('--cad_file', type=str, default="ply")
 parser.add_argument('--kps_extractor', type=str, default="SIFT")
 parser.add_argument('--dropout_rate', type=float, default=0.5)
 parser.add_argument('--lr', type=float, default=0.01)
@@ -446,6 +447,7 @@ class Trainer(object):
                 if v is not None:
                     eval_dict[k] = eval_dict.get(k, []) + [v]
 
+
         mean_eval_dict = {}
         acc_dict = {}
         for k, v in eval_dict.items():
@@ -496,7 +498,7 @@ class Trainer(object):
         tot_iter=1,
         clr_div=6,
         eval_frequency=1000,
-        data_num=150
+        data_num=60000
     ):
         r"""
            Call to begin training the model
@@ -578,7 +580,7 @@ class Trainer(object):
                     # eval_flag, eval_frequency = is_to_eval(epoch, it)
 
                     # TODO : eval frequency
-                    if it % eval_frequency == 0 or it % data_num == 0:
+                    if it % eval_frequency == 0 or it % (data_num-1) == 0:
                         pbar.close()
 
                         if test_loader is not None:
@@ -644,7 +646,8 @@ def train():
     print("##########################", run.config)
     config = Config(ds_name='neuromeka', dataset_dir=args.dataset_dir, cls_type=args.cls,
                     n_total_epoch=args.epochs, batch_size=args.batch_size, now=now,
-                    cad_file=run.config["cad_file"], kps_extractor=run.config["kps_extractor"])
+                    cad_file=args.cad_file, kps_extractor=args.kps_extractor,
+                    n_keypoints=args.n_keypoints)
     bs_utils = Basic_Utils(config)
     writer = SummaryWriter(log_dir=config.log_traininfo_dir)
 
@@ -687,8 +690,8 @@ def train():
             test_ds, batch_size=args.batch_size, shuffle=False,
             num_workers=args.num_workers
         )
-    data_num = int(len(train_ds) / args.gpus) if args.gpus > 0 else len(train_ds)
-    eval_frequency = int(data_num * args.eval_freq / args.gpus) if args.gpus > 0 else int(data_num * args.eval_freq)
+    data_num = len(train_ds) / args.gpus if args.gpus > 0 else len(train_ds)
+    eval_frequency = int(data_num * args.eval_freq) / args.gpus if args.gpus > 0 else int(data_num * args.eval_freq)
 
     rndla_cfg = ConfigRandLA
     model = FFB6D(
@@ -703,7 +706,7 @@ def train():
     print('local_rank:', int(os.environ["LOCAL_RANK"]))
     model.to(device)
     optimizer = optim.Adam(
-        model.parameters(), lr=run.config["lr"], weight_decay=args.weight_decay
+        model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
     opt_level = args.opt_level
     model, optimizer = amp.initialize(
@@ -809,6 +812,7 @@ def train():
 
         if start_epoch == args.epochs:
             _ = trainer.eval_epoch(val_loader)
+
 
 
 if __name__ == "__main__":
