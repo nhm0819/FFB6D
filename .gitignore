@@ -19,6 +19,7 @@ ffb6d/wandb
 ffb6d/datasets/ycb/YCB_Video_Dataset
 ffb6d/datasets/linemod/Linemod_preprocessed
 ffb6d/datasets/neuromeka/*/
+ffb6d/datasets/neuromeka/EDA
 ffb6d/datasets/SUN2012pascalformat
 ffb6d/train_log
 ffb6d/datasets/train_log
